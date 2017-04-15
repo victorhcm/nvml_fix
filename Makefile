@@ -5,7 +5,7 @@ TARGET_MAJOR := $(shell echo ${TARGET_VER} | cut -d . --f=1)
 TARGET        = libnvidia-ml.so.1
 DESTDIR       = /
 PREFIX        = $(DESTDIR)usr
-libdir        = $(PREFIX)/lib
+libdir        = $(PREFIX)/lib/x86_64-linux-gnu/
 INSTALL       = /usr/bin/install -D
 
 all: $(TARGET)

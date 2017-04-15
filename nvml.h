@@ -1,5 +1,5 @@
 /*
- * Copyright 1993-2012 NVIDIA Corporation.  All rights reserved.
+ * Copyright 1993-2015 NVIDIA Corporation.  All rights reserved.
  *
  * NOTICE TO USER:   
  *
@@ -33,62 +33,38 @@
  * the above Disclaimer and U.S. Government End Users Notice.
  */
 
-/*! 
-\mainpage NVML API Reference
+/* 
+NVML API Reference
 
 The NVIDIA Management Library (NVML) is a C-based programmatic interface for monitoring and 
-managing various states within NVIDIA Tesla &tm; GPUs.<br>It is intended to be a platform for building
+managing various states within NVIDIA Tesla &tm; GPUs. It is intended to be a platform for building
 3rd party applications, and is also the underlying library for the NVIDIA-supported nvidia-smi
-tool.<br>NVML is thread-safe so it is safe to make simultaneous NVML calls from multiple threads.
-<p>
-<hr size="1">
-<p>
-<h2 align="center">API Documentation</h2>
-<p>
-Supported OS platforms:
-- Windows: Windows Server 2008 R2 64bit, Windows 7 64bit
-- Linux: 32-bit and 64-bit
+tool. NVML is thread-safe so it is safe to make simultaneous NVML calls from multiple threads.
+
+API Documentation
+
+Supported platforms:
+- Windows:     Windows Server 2008 R2 64bit, Windows Server 2012 R2 64bit, Windows 7 64bit, Windows 8 64bit, Windows 10 64bit
+- Linux:       32-bit and 64-bit
+- Hypervisors: Windows Server 2008R2/2012 Hyper-V 64bit, Citrix XenServer 6.2 SP1+, VMware ESX 5.1/5.5
 
 Supported products:
 - Full Support
-    - NVIDIA Tesla &tm; Line:   S1070, S2050, C1060, C2050/70/75, M2050/70/75/90, X2070/90
-    - NVIDIA Quadro &reg; Line:  4000, 5000, 6000, 7000, M2070-Q
-    - NVIDIA GeForce &reg; Line: None
+    - All Tesla products, starting with the Fermi architecture
+    - All Quadro products, starting with the Fermi architecture
+    - All GRID products, starting with the Kepler architecture
+    - Selected GeForce Titan products
 - Limited Support
-    - NVIDIA Tesla &tm; Line:   None
-    - NVIDIA Quadro &reg; Line:  All other current and previous generation Quadro-branded parts
-    - NVIDIA GeForce &reg; Line: All current and previous generation GeForce-branded parts
+    - All Geforce products, starting with the Fermi architecture
 
-The NVML library can be found at \%ProgramW6432\%\\"NVIDIA Corporation"\\NVSMI\\ on Windows, but
-will not be added to the path. To dynamically link to NVML, add this path to the PATH environmental
-variable. To dynamically load NVML, call LoadLibrary with this path.
+The NVML library can be found at \%ProgramW6432\%\\"NVIDIA Corporation"\\NVSMI\\ on Windows. It is
+not be added to the system path by default. To dynamically link to NVML, add this path to the PATH 
+environmental variable. To dynamically load NVML, call LoadLibrary with this path.
 
 On Linux the NVML library will be found on the standard library path. For 64 bit Linux, both the 32 bit
 and 64 bit NVML libraries will be installed.
 
-The NVML API is divided into five categories:
-- Support Methods:
-    - \ref nvmlInitializationAndCleanup 
-- Query Methods:
-    - \ref nvmlSystemQueries 
-    - \ref nvmlDeviceQueries 
-    - \ref nvmlUnitQueries 
-- Control Methods:
-    - \ref nvmlUnitCommands 
-    - \ref nvmlDeviceCommands 
-- Event Handling Methods:
-    - \ref nvmlEvents
-- Error reporting Methods
-    - \ref nvmlErrorReporting
-
-List of changes can be found in the \ref Changelog
-
-\latexonly
-\section{Feature Matrix}
-\endlatexonly
-\image latex FeatureMatrix_Units.png "This chart shows which unit-level features are available for each S-class product. All GPUs within each S-class product also provide the information listed in the Device chart below." width=10cm
-\image latex FeatureMatrix_Fermi.png "This chart shows which features are available for each Fermi and Kepler architecture GPU product." width=15cm
-\image latex FeatureMatrix_QuadroAndT10.png "This chart shows which features are available for each Quadro and T10 GPU product." height=22cm
+Online documentation for this library is available at http://docs.nvidia.com/deploy/nvml-api/index.html
 */
 
 #ifndef __nvml_nvml_h__
@@ -100,12 +76,17 @@ extern "C" {
 
 /*
  * On Windows, set up methods for DLL export
+ * define NVML_STATIC_IMPORT when using nvml_loader library
  */
 #if defined _WINDOWS
-    #if defined LIB_EXPORT
-        #define DECLDIR __declspec(dllexport)
+    #if !defined NVML_STATIC_IMPORT
+        #if defined NVML_LIB_EXPORT
+            #define DECLDIR __declspec(dllexport)
+        #else
+            #define DECLDIR __declspec(dllimport)
+        #endif
     #else
-        #define DECLDIR __declspec(dllimport)
+        #define DECLDIR
     #endif
 #else
     #define DECLDIR
@@ -114,9 +95,13 @@ extern "C" {
 /**
  * NVML API versioning support
  */
-#define NVML_API_VERSION            3
-#define NVML_API_VERSION_STR        "3"
+#define NVML_API_VERSION            7
+#define NVML_API_VERSION_STR        "7"
+#define nvmlInit                    nvmlInit_v2
 #define nvmlDeviceGetPciInfo        nvmlDeviceGetPciInfo_v2
+#define nvmlDeviceGetCount          nvmlDeviceGetCount_v2
+#define nvmlDeviceGetHandleByIndex  nvmlDeviceGetHandleByIndex_v2
+#define nvmlDeviceGetHandleByPciBusId nvmlDeviceGetHandleByPciBusId_v2
 
 /***************************************************************************************************/
 /** @defgroup nvmlDeviceStructs Device Structs
@@ -135,11 +120,16 @@ extern "C" {
 typedef struct nvmlDevice_st* nvmlDevice_t;
 
 /**
+ * Buffer size guaranteed to be large enough for pci bus id
+ */
+#define NVML_DEVICE_PCI_BUS_ID_BUFFER_SIZE   16
+
+/**
  * PCI information about a GPU device.
  */
 typedef struct nvmlPciInfo_st 
 {
-    char busId[16];                  //!< The tuple domain:bus:device.function PCI identifier (&amp; NULL terminator)
+    char busId[NVML_DEVICE_PCI_BUS_ID_BUFFER_SIZE]; //!< The tuple domain:bus:device.function PCI identifier (&amp; NULL terminator)
     unsigned int domain;             //!< The PCI domain on which the device's bus resides, 0 to 0xffff
     unsigned int bus;                //!< The bus on which the device resides, 0 to 0xff
     unsigned int device;             //!< The device's id on the bus, 0 to 31
@@ -157,6 +147,9 @@ typedef struct nvmlPciInfo_st
 
 /**
  * Detailed ECC error counts for a device.
+ *
+ * @deprecated  Different GPU families can have different memory error counters
+ *              See \ref nvmlDeviceGetMemoryErrorCounter
  */
 typedef struct nvmlEccErrorCounts_st 
 {
@@ -168,11 +161,12 @@ typedef struct nvmlEccErrorCounts_st
 
 /** 
  * Utilization information for a device.
+ * Each sample period may be between 1 second and 1/6 second, depending on the product being queried.
  */
 typedef struct nvmlUtilization_st 
 {
-    unsigned int gpu;                //!< Percent of time over the past second during which one or more kernels was executing on the GPU
-    unsigned int memory;             //!< Percent of time over the past second during which global (device) memory was being read or written
+    unsigned int gpu;                //!< Percent of time over the past sample period during which one or more kernels was executing on the GPU
+    unsigned int memory;             //!< Percent of time over the past sample period during which global (device) memory was being read or written
 } nvmlUtilization_t;
 
 /** 
@@ -186,15 +180,161 @@ typedef struct nvmlMemory_st
 } nvmlMemory_t;
 
 /**
+ * BAR1 Memory allocation Information for a device
+ */
+typedef struct nvmlBAR1Memory_st
+{
+    unsigned long long bar1Total;    //!< Total BAR1 Memory (in bytes)
+    unsigned long long bar1Free;     //!< Unallocated BAR1 Memory (in bytes)
+    unsigned long long bar1Used;     //!< Allocated Used Memory (in bytes)
+}nvmlBAR1Memory_t;
+
+/**
  * Information about running compute processes on the GPU
  */
 typedef struct nvmlProcessInfo_st
 {
     unsigned int pid;                 //!< Process ID
     unsigned long long usedGpuMemory; //!< Amount of used GPU memory in bytes.
-                                      //!< Under WDDM, \ref NVML_VALUE_NOT_AVAILABLE is always reported
-                                      //!< because Windows KMD manages all the memory and not the NVIDIA driver
+                                      //! Under WDDM, \ref NVML_VALUE_NOT_AVAILABLE is always reported
+                                      //! because Windows KMD manages all the memory and not the NVIDIA driver
 } nvmlProcessInfo_t;
+
+
+/**
+ * Enum to represent type of bridge chip
+ */
+typedef enum nvmlBridgeChipType_enum
+{
+    NVML_BRIDGE_CHIP_PLX = 0,
+    NVML_BRIDGE_CHIP_BRO4 = 1           
+}nvmlBridgeChipType_t;
+
+/**
+ * Represents level relationships within a system between two GPUs
+ * The enums are spaced to allow for future relationships
+ */
+typedef enum nvmlGpuLevel_enum
+{
+    NVML_TOPOLOGY_INTERNAL           = 0, // e.g. Tesla K80
+    NVML_TOPOLOGY_SINGLE             = 10, // all devices that only need traverse a single PCIe switch
+    NVML_TOPOLOGY_MULTIPLE           = 20, // all devices that need not traverse a host bridge
+    NVML_TOPOLOGY_HOSTBRIDGE         = 30, // all devices that are connected to the same host bridge
+    NVML_TOPOLOGY_CPU                = 40, // all devices that are connected to the same CPU but possibly multiple host bridges
+    NVML_TOPOLOGY_SYSTEM             = 50, // all devices in the system
+
+    // there is purposefully no COUNT here because of the need for spacing above
+} nvmlGpuTopologyLevel_t;
+
+
+/**
+ * Maximum limit on Physical Bridges per Board
+ */
+#define NVML_MAX_PHYSICAL_BRIDGE                         (128)
+
+/**
+ * Information about the Bridge Chip Firmware
+ */
+typedef struct nvmlBridgeChipInfo_st
+{
+    nvmlBridgeChipType_t type;                  //!< Type of Bridge Chip 
+    unsigned int fwVersion;                     //!< Firmware Version. 0=Version is unavailable
+}nvmlBridgeChipInfo_t;
+
+/**
+ * This structure stores the complete Hierarchy of the Bridge Chip within the board. The immediate 
+ * bridge is stored at index 0 of bridgeInfoList, parent to immediate bridge is at index 1 and so forth.
+ */
+typedef struct nvmlBridgeChipHierarchy_st
+{
+    unsigned char  bridgeCount;                 //!< Number of Bridge Chips on the Board
+    nvmlBridgeChipInfo_t bridgeChipInfo[NVML_MAX_PHYSICAL_BRIDGE]; //!< Hierarchy of Bridge Chips on the board
+}nvmlBridgeChipHierarchy_t;
+
+/**
+ *  Represents Type of Sampling Event
+ */
+typedef enum nvmlSamplingType_enum
+{
+    NVML_TOTAL_POWER_SAMPLES        = 0, //!< To represent total power drawn by GPU
+    NVML_GPU_UTILIZATION_SAMPLES    = 1, //!< To represent percent of time during which one or more kernels was executing on the GPU
+    NVML_MEMORY_UTILIZATION_SAMPLES = 2, //!< To represent percent of time during which global (device) memory was being read or written
+    NVML_ENC_UTILIZATION_SAMPLES    = 3, //!< To represent percent of time during which NVENC remains busy
+    NVML_DEC_UTILIZATION_SAMPLES    = 4, //!< To represent percent of time during which NVDEC remains busy            
+    NVML_PROCESSOR_CLK_SAMPLES      = 5, //!< To represent processor clock samples
+    NVML_MEMORY_CLK_SAMPLES         = 6, //!< To represent memory clock samples
+            
+    // Keep this last
+    NVML_SAMPLINGTYPE_COUNT               
+}nvmlSamplingType_t;
+
+/**
+ * Represents the queryable PCIe utilization counters
+ */
+typedef enum nvmlPcieUtilCounter_enum
+{
+    NVML_PCIE_UTIL_TX_BYTES             = 0, // 1KB granularity
+    NVML_PCIE_UTIL_RX_BYTES             = 1, // 1KB granularity
+    
+    // Keep this last
+    NVML_PCIE_UTIL_COUNT
+} nvmlPcieUtilCounter_t;
+
+/**
+ * Represents the type for sample value returned
+ */
+typedef enum nvmlValueType_enum 
+{
+    NVML_VALUE_TYPE_DOUBLE = 0,
+    NVML_VALUE_TYPE_UNSIGNED_INT = 1,
+    NVML_VALUE_TYPE_UNSIGNED_LONG = 2,
+    NVML_VALUE_TYPE_UNSIGNED_LONG_LONG = 3,
+
+    // Keep this last
+    NVML_VALUE_TYPE_COUNT
+}nvmlValueType_t;
+
+
+/**
+ * Union to represent different types of Value
+ */
+typedef union nvmlValue_st
+{
+    double dVal;                    //!< If the value is double
+    unsigned int uiVal;             //!< If the value is unsigned int
+    unsigned long ulVal;            //!< If the value is unsigned long
+    unsigned long long ullVal;      //!< If the value is unsigned long long
+}nvmlValue_t;
+
+/**
+ * Information for Sample
+ */
+typedef struct nvmlSample_st 
+{
+    unsigned long long timeStamp;       //!< CPU Timestamp in microseconds
+    nvmlValue_t sampleValue;        //!< Sample Value
+}nvmlSample_t;
+
+/**
+ * Represents type of perf policy for which violation times can be queried 
+ */
+typedef enum nvmlPerfPolicyType_enum
+{
+    NVML_PERF_POLICY_POWER = 0,
+    NVML_PERF_POLICY_THERMAL = 1,
+
+    // Keep this last
+    NVML_PERF_POLICY_COUNT
+}nvmlPerfPolicyType_t;
+
+/**
+ * Struct to hold perf policy violation status data
+ */
+typedef struct nvmlViolationTime_st
+{
+    unsigned long long referenceTime;  //!< referenceTime represents CPU timestamp in microseconds
+    unsigned long long violationTime;  //!< violationTime in Nanoseconds
+}nvmlViolationTime_t;
 
 /** @} */
 
@@ -218,12 +358,43 @@ typedef enum nvmlEnableState_enum
 //! Generic flag used to force some behavior. See description of particular functions for details.
 #define nvmlFlagForce       0x01      
 
+/**
+ *  * The Brand of the GPU
+ *   */
+typedef enum nvmlBrandType_enum
+{
+    NVML_BRAND_UNKNOWN = 0, 
+    NVML_BRAND_QUADRO  = 1,
+    NVML_BRAND_TESLA   = 2,
+    NVML_BRAND_NVS     = 3,
+    NVML_BRAND_GRID    = 4,
+    NVML_BRAND_GEFORCE = 5,
+
+    // Keep this last
+    NVML_BRAND_COUNT
+} nvmlBrandType_t;
+
+/**
+ * Temperature thresholds.
+ */
+typedef enum nvmlTemperatureThresholds_enum
+{
+    NVML_TEMPERATURE_THRESHOLD_SHUTDOWN = 0,    // Temperature at which the GPU will shut down
+                                                // for HW protection
+    NVML_TEMPERATURE_THRESHOLD_SLOWDOWN = 1,    // Temperature at which the GPU will begin slowdown
+    // Keep this last
+    NVML_TEMPERATURE_THRESHOLD_COUNT
+} nvmlTemperatureThresholds_t;
+
 /** 
  * Temperature sensors. 
  */
 typedef enum nvmlTemperatureSensors_enum 
 {
-    NVML_TEMPERATURE_GPU      = 0     //!< Temperature sensor for the GPU die
+    NVML_TEMPERATURE_GPU      = 0,    //!< Temperature sensor for the GPU die
+    
+    // Keep this last
+    NVML_TEMPERATURE_COUNT
 } nvmlTemperatureSensors_t;
 
 /** 
@@ -237,18 +408,60 @@ typedef enum nvmlComputeMode_enum
 {
     NVML_COMPUTEMODE_DEFAULT           = 0,  //!< Default compute mode -- multiple contexts per device
     NVML_COMPUTEMODE_EXCLUSIVE_THREAD  = 1,  //!< Compute-exclusive-thread mode -- only one context per device, usable from one thread at a time
+                                             //!< This mode has been deprecated and will be removed in future releases.
     NVML_COMPUTEMODE_PROHIBITED        = 2,  //!< Compute-prohibited mode -- no contexts per device
-    NVML_COMPUTEMODE_EXCLUSIVE_PROCESS = 3   //!< Compute-exclusive-process mode -- only one context per device, usable from multiple threads at a time
+    NVML_COMPUTEMODE_EXCLUSIVE_PROCESS = 3,  //!< Compute-exclusive-process mode -- only one context per device, usable from multiple threads at a time
+    
+    // Keep this last
+    NVML_COMPUTEMODE_COUNT
 } nvmlComputeMode_t;
 
 /** 
- * ECC bit types. 
+ * ECC bit types.
+ *
+ * @deprecated See \ref nvmlMemoryErrorType_t for a more flexible type
  */
-typedef enum nvmlEccBitType_enum 
+#define nvmlEccBitType_t nvmlMemoryErrorType_t
+
+/**
+ * Single bit ECC errors
+ *
+ * @deprecated Mapped to \ref NVML_MEMORY_ERROR_TYPE_CORRECTED
+ */
+#define NVML_SINGLE_BIT_ECC NVML_MEMORY_ERROR_TYPE_CORRECTED
+
+/**
+ * Double bit ECC errors
+ *
+ * @deprecated Mapped to \ref NVML_MEMORY_ERROR_TYPE_UNCORRECTED
+ */
+#define NVML_DOUBLE_BIT_ECC NVML_MEMORY_ERROR_TYPE_UNCORRECTED
+
+/**
+ * Memory error types
+ */
+typedef enum nvmlMemoryErrorType_enum
 {
-    NVML_SINGLE_BIT_ECC     = 0,      //!< Single bit ECC errors 
-    NVML_DOUBLE_BIT_ECC     = 1       //!< Double bit ECC errors
-} nvmlEccBitType_t;
+    /**
+     * A memory error that was corrected
+     * 
+     * For ECC errors, these are single bit errors
+     * For Texture memory, these are errors fixed by resend
+     */
+    NVML_MEMORY_ERROR_TYPE_CORRECTED = 0,
+    /**
+     * A memory error that was not corrected
+     * 
+     * For ECC errors, these are double bit errors
+     * For Texture memory, these are errors where the resend fails
+     */
+    NVML_MEMORY_ERROR_TYPE_UNCORRECTED = 1,
+    
+    
+    // Keep this last
+    NVML_MEMORY_ERROR_TYPE_COUNT //!< Count of memory error types
+
+} nvmlMemoryErrorType_t;
 
 /** 
  * ECC counter types. 
@@ -261,7 +474,10 @@ typedef enum nvmlEccBitType_enum
 typedef enum nvmlEccCounterType_enum 
 {
     NVML_VOLATILE_ECC      = 0,      //!< Volatile counts are reset each time the driver loads.
-    NVML_AGGREGATE_ECC     = 1       //!< Aggregate counts persist across reboots (i.e. for the lifetime of the device)
+    NVML_AGGREGATE_ECC     = 1,      //!< Aggregate counts persist across reboots (i.e. for the lifetime of the device)
+    
+    // Keep this last
+    NVML_ECC_COUNTER_TYPE_COUNT      //!< Count of memory counter types
 } nvmlEccCounterType_t;
 
 /** 
@@ -273,7 +489,10 @@ typedef enum nvmlClockType_enum
 {
     NVML_CLOCK_GRAPHICS  = 0,        //!< Graphics clock domain
     NVML_CLOCK_SM        = 1,        //!< SM clock domain
-    NVML_CLOCK_MEM       = 2         //!< Memory clock domain
+    NVML_CLOCK_MEM       = 2,        //!< Memory clock domain
+    
+    // Keep this last
+    NVML_CLOCK_COUNT //<! Count of clock types
 } nvmlClockType_t;
 
 /** 
@@ -308,8 +527,26 @@ typedef enum nvmlPStates_enum
     NVML_PSTATE_13              = 13,      //!< Performance state 13
     NVML_PSTATE_14              = 14,      //!< Performance state 14
     NVML_PSTATE_15              = 15,      //!< Performance state 15 -- Minimum Performance 
-    NVML_PSTATE_UNKNOWN         = 32,      //!< Unknown performance state
+    NVML_PSTATE_UNKNOWN         = 32       //!< Unknown performance state
 } nvmlPstates_t;
+
+/**
+ * GPU Operation Mode
+ *
+ * GOM allows to reduce power usage and optimize GPU throughput by disabling GPU features.
+ *
+ * Each GOM is designed to meet specific user needs.
+ */
+typedef enum nvmlGom_enum
+{
+    NVML_GOM_ALL_ON                    = 0, //!< Everything is enabled and running at full speed
+
+    NVML_GOM_COMPUTE                   = 1, //!< Designed for running only compute tasks. Graphics operations
+                                            //!< are not allowed
+
+    NVML_GOM_LOW_DP                    = 2  //!< Designed for running graphics applications that don't require
+                                            //!< high bandwidth double precision
+} nvmlGpuOperationMode_t;
 
 /** 
  * Available infoROM objects.
@@ -318,7 +555,10 @@ typedef enum nvmlInforomObject_enum
 {
     NVML_INFOROM_OEM            = 0,       //!< An object defined by OEM
     NVML_INFOROM_ECC            = 1,       //!< The ECC object determining the level of ECC support
-    NVML_INFOROM_POWER          = 2        //!< The power management object
+    NVML_INFOROM_POWER          = 2,       //!< The power management object
+
+    // Keep this last
+    NVML_INFOROM_COUNT                     //!< This counts the number of infoROM objects the driver knows about
 } nvmlInforomObject_t;
 
 /** 
@@ -337,8 +577,57 @@ typedef enum nvmlReturn_enum
     NVML_ERROR_INSUFFICIENT_POWER = 8,  //!< A device's external power cables are not properly attached
     NVML_ERROR_DRIVER_NOT_LOADED = 9,   //!< NVIDIA driver is not loaded
     NVML_ERROR_TIMEOUT = 10,            //!< User provided timeout passed
+    NVML_ERROR_IRQ_ISSUE = 11,          //!< NVIDIA Kernel detected an interrupt issue with a GPU
+    NVML_ERROR_LIBRARY_NOT_FOUND = 12,  //!< NVML Shared Library couldn't be found or loaded
+    NVML_ERROR_FUNCTION_NOT_FOUND = 13, //!< Local version of NVML doesn't implement this function
+    NVML_ERROR_CORRUPTED_INFOROM = 14,  //!< infoROM is corrupted
+    NVML_ERROR_GPU_IS_LOST = 15,        //!< The GPU has fallen off the bus or has otherwise become inaccessible
+    NVML_ERROR_RESET_REQUIRED = 16,     //!< The GPU requires a reset before it can be used again
+    NVML_ERROR_OPERATING_SYSTEM = 17,   //!< The GPU control device has been blocked by the operating system/cgroups
     NVML_ERROR_UNKNOWN = 999            //!< An internal driver error occurred
 } nvmlReturn_t;
+
+/**
+ * Memory locations
+ *
+ * See \ref nvmlDeviceGetMemoryErrorCounter
+ */
+typedef enum nvmlMemoryLocation_enum
+{
+    NVML_MEMORY_LOCATION_L1_CACHE = 0,       //!< GPU L1 Cache
+    NVML_MEMORY_LOCATION_L2_CACHE = 1,       //!< GPU L2 Cache
+    NVML_MEMORY_LOCATION_DEVICE_MEMORY = 2,  //!< GPU Device Memory
+    NVML_MEMORY_LOCATION_REGISTER_FILE = 3,  //!< GPU Register File
+    NVML_MEMORY_LOCATION_TEXTURE_MEMORY = 4, //!< GPU Texture Memory
+    
+    // Keep this last
+    NVML_MEMORY_LOCATION_COUNT              //!< This counts the number of memory locations the driver knows about
+} nvmlMemoryLocation_t;
+
+/**
+ * Causes for page retirement
+ */
+typedef enum nvmlPageRetirementCause_enum
+{
+    NVML_PAGE_RETIREMENT_CAUSE_MULTIPLE_SINGLE_BIT_ECC_ERRORS = 0, //!< Page was retired due to multiple single bit ECC error
+    NVML_PAGE_RETIREMENT_CAUSE_DOUBLE_BIT_ECC_ERROR = 1,           //!< Page was retired due to double bit ECC error
+
+    // Keep this last
+    NVML_PAGE_RETIREMENT_CAUSE_COUNT
+} nvmlPageRetirementCause_t;
+
+/**
+ * API types that allow changes to default permission restrictions
+ */
+typedef enum nvmlRestrictedAPI_enum
+{
+    NVML_RESTRICTED_API_SET_APPLICATION_CLOCKS = 0,   //!< APIs that change application clocks, see nvmlDeviceSetApplicationsClocks 
+                                                      //!< and see nvmlDeviceResetApplicationsClocks
+    NVML_RESTRICTED_API_SET_AUTO_BOOSTED_CLOCKS = 1,  //!< APIs that enable/disable auto boosted clocks
+                                                      //!< see nvmlDeviceSetAutoBoostedClocksEnabled
+    // Keep this last
+    NVML_RESTRICTED_API_COUNT
+} nvmlRestrictedAPI_t;
 
 /** @} */
 
@@ -463,25 +752,42 @@ typedef struct nvmlEventSet_st* nvmlEventSet_t;
  * Types can be combined with bitwise or operator '|' when passed to \ref nvmlDeviceRegisterEvents
  */
 //! Event about single bit ECC errors
+/**
+ * \note A corrected texture memory error is not an ECC error, so it does not generate a single bit event
+ */
 #define nvmlEventTypeSingleBitEccError     0x0000000000000001LL
+
 //! Event about double bit ECC errors
+/**
+ * \note An uncorrected texture memory error is not an ECC error, so it does not generate a double bit event
+ */
 #define nvmlEventTypeDoubleBitEccError     0x0000000000000002LL
+
 //! Event about PState changes
 /**
  *  \note On Fermi architecture PState changes are also an indicator that GPU is throttling down due to
  *  no work being executed on the GPU, power capping or thermal capping. In a typical situation,
  *  Fermi-based GPU should stay in P0 for the duration of the execution of the compute process.
  */
-#define nvmlEventTypePState                0x0000000000000004LL     
+#define nvmlEventTypePState                0x0000000000000004LL
+
 //! Event that Xid critical error occurred
-#define nvmlEventTypeXidCriticalError      0x0000000000000008LL     
+#define nvmlEventTypeXidCriticalError      0x0000000000000008LL
+
+//! Event about clock changes
+/**
+ * Kepler only
+ */
+#define nvmlEventTypeClock                 0x0000000000000010LL
+
 //! Mask with no events
-#define nvmlEventTypeNone                  0x0000000000000000LL     
+#define nvmlEventTypeNone                  0x0000000000000000LL
 //! Mask of all events
 #define nvmlEventTypeAll (nvmlEventTypeNone    \
         | nvmlEventTypeSingleBitEccError       \
         | nvmlEventTypeDoubleBitEccError       \
         | nvmlEventTypePState                  \
+        | nvmlEventTypeClock                   \
         | nvmlEventTypeXidCriticalError        \
         )
 /** @} */
@@ -493,8 +799,119 @@ typedef struct nvmlEventData_st
 {
     nvmlDevice_t        device;         //!< Specific device where the event occurred
     unsigned long long  eventType;      //!< Information about what specific event occurred
-    unsigned long long  reserved;
+    unsigned long long  eventData;      //!< Stores last XID error for the device in the event of nvmlEventTypeXidCriticalError, 
+                                        //  eventData is 0 for any other event. eventData is set as 999 for unknown xid error.
 } nvmlEventData_t;
+
+/** @} */
+
+/***************************************************************************************************/
+/** @addtogroup nvmlClocksThrottleReasons
+ *  @{
+ */
+/***************************************************************************************************/
+
+/** Nothing is running on the GPU and the clocks are dropping to Idle state
+ * \note This limiter may be removed in a later release
+ */
+#define nvmlClocksThrottleReasonGpuIdle                   0x0000000000000001LL
+
+/** GPU clocks are limited by current setting of applications clocks
+ *
+ * @see nvmlDeviceSetApplicationsClocks
+ * @see nvmlDeviceGetApplicationsClock
+ */
+#define nvmlClocksThrottleReasonApplicationsClocksSetting   0x0000000000000002LL
+
+/** 
+ * @deprecated Renamed to \ref nvmlClocksThrottleReasonApplicationsClocksSetting 
+ *             as the name describes the situation more accurately.
+ */
+#define nvmlClocksThrottleReasonUserDefinedClocks         nvmlClocksThrottleReasonApplicationsClocksSetting 
+
+/** SW Power Scaling algorithm is reducing the clocks below requested clocks 
+ *
+ * @see nvmlDeviceGetPowerUsage
+ * @see nvmlDeviceSetPowerManagementLimit
+ * @see nvmlDeviceGetPowerManagementLimit
+ */
+#define nvmlClocksThrottleReasonSwPowerCap                0x0000000000000004LL
+
+/** HW Slowdown (reducing the core clocks by a factor of 2 or more) is engaged
+ * 
+ * This is an indicator of:
+ *   - temperature being too high
+ *   - External Power Brake Assertion is triggered (e.g. by the system power supply)
+ *   - Power draw is too high and Fast Trigger protection is reducing the clocks
+ *   - May be also reported during PState or clock change
+ *      - This behavior may be removed in a later release.
+ *
+ * @see nvmlDeviceGetTemperature
+ * @see nvmlDeviceGetTemperatureThreshold
+ * @see nvmlDeviceGetPowerUsage
+ */
+#define nvmlClocksThrottleReasonHwSlowdown                0x0000000000000008LL
+
+/** Some other unspecified factor is reducing the clocks */
+#define nvmlClocksThrottleReasonUnknown                   0x8000000000000000LL
+
+/** Bit mask representing no clocks throttling
+ *
+ * Clocks are as high as possible.
+ * */
+#define nvmlClocksThrottleReasonNone                      0x0000000000000000LL
+
+/** Bit mask representing all supported clocks throttling reasons 
+ * New reasons might be added to this list in the future
+ */
+#define nvmlClocksThrottleReasonAll (nvmlClocksThrottleReasonNone \
+      | nvmlClocksThrottleReasonGpuIdle                           \
+      | nvmlClocksThrottleReasonApplicationsClocksSetting         \
+      | nvmlClocksThrottleReasonSwPowerCap                        \
+      | nvmlClocksThrottleReasonHwSlowdown                        \
+      | nvmlClocksThrottleReasonUnknown                           \
+        ) 
+/** @} */
+
+/***************************************************************************************************/
+/** @defgroup nvmlAccountingStats Accounting Statistics
+ *  @{
+ *
+ *  Set of APIs designed to provide per process information about usage of GPU.
+ *
+ *  @note All accounting statistics and accounting mode live in nvidia driver and reset 
+ *        to default (Disabled) when driver unloads.
+ *        It is advised to run with persistence mode enabled.
+ *
+ *  @note Enabling accounting mode has no negative impact on the GPU performance.
+ */
+/***************************************************************************************************/
+
+/**
+ * Describes accounting statistics of a process.
+ */
+typedef struct nvmlAccountingStats_st {
+    unsigned int gpuUtilization;                //!< Percent of time over the process's lifetime during which one or more kernels was executing on the GPU.
+                                                //! Utilization stats just like returned by \ref nvmlDeviceGetUtilizationRates but for the life time of a
+                                                //! process (not just the last sample period).
+                                                //! Set to NVML_VALUE_NOT_AVAILABLE if nvmlDeviceGetUtilizationRates is not supported
+    
+    unsigned int memoryUtilization;             //!< Percent of time over the process's lifetime during which global (device) memory was being read or written.
+                                                //! Set to NVML_VALUE_NOT_AVAILABLE if nvmlDeviceGetUtilizationRates is not supported
+    
+    unsigned long long maxMemoryUsage;          //!< Maximum total memory in bytes that was ever allocated by the process.
+                                                //! Set to NVML_VALUE_NOT_AVAILABLE if nvmlProcessInfo_t->usedGpuMemory is not supported
+    
+
+    unsigned long long time;                    //!< Amount of time in ms during which the compute context was active. The time is reported as 0 if 
+                                                //!< the process is not terminated
+    
+    unsigned long long startTime;               //!< CPU Timestamp in usec representing start time for the process
+    
+    unsigned int isRunning;                     //!< Flag to represent if the process is running (1 for running, 0 for terminated)
+
+    unsigned int reserved[5];                   //!< Reserved for future use
+} nvmlAccountingStats_t;
 
 /** @} */
 
@@ -508,19 +925,28 @@ typedef struct nvmlEventData_st
 /***************************************************************************************************/
 
 /**
- * Initialize NVML by discovering and attaching to all GPU devices in the system.
+ * Initialize NVML, but don't initialize any GPUs yet.
+ *
+ * \note In NVML 5.319 new nvmlInit_v2 has replaced nvmlInit"_v1" (default in NVML 4.304 and older) that
+ *       did initialize all GPU devices in the system.
+ *       
+ * This allows NVML to communicate with a GPU
+ * when other GPUs in the system are unstable or in a bad state.  When using this API, GPUs are
+ * discovered and initialized in nvmlDeviceGetHandleBy* functions instead.
+ * 
+ * \note To contrast nvmlInit_v2 with nvmlInit"_v1", NVML 4.304 nvmlInit"_v1" will fail when any detected GPU is in
+ *       a bad or unstable state.
  * 
  * For all products.
  *
- * This method should be called once before invoking any other methods in the library.
+ * This method, should be called once before invoking any other methods in the library.
  * A reference count of the number of initializations is maintained.  Shutdown only occurs
  * when the reference count reaches zero.
  * 
  * @return 
  *         - \ref NVML_SUCCESS                   if NVML has been properly initialized
- *         - \ref NVML_ERROR_NO_PERMISSION       if the user doesn't have permission to talk to any device
  *         - \ref NVML_ERROR_DRIVER_NOT_LOADED   if NVIDIA driver is not running
- *         - \ref NVML_ERROR_INSUFFICIENT_POWER  if any devices have improperly attached external power cables
+ *         - \ref NVML_ERROR_NO_PERMISSION       if NVML does not have permission to talk to the driver
  *         - \ref NVML_ERROR_UNKNOWN             on any unexpected error
  */
 nvmlReturn_t DECLDIR nvmlInit(void);
@@ -554,7 +980,7 @@ nvmlReturn_t DECLDIR nvmlShutdown(void);
 /**
  * Helper method for converting NVML error codes into readable strings.
  *
- * For all products
+ * For all products.
  *
  * @param result                               NVML error code to convert
  *
@@ -572,7 +998,7 @@ const DECLDIR char* nvmlErrorString(nvmlReturn_t result);
 /***************************************************************************************************/
 
 /**
- * Buffer size guaranteed to be large enough for \ref nvmlDeviceGetInforomVersion
+ * Buffer size guaranteed to be large enough for \ref nvmlDeviceGetInforomVersion and \ref nvmlDeviceGetInforomImageVersion
  */
 #define NVML_DEVICE_INFOROM_VERSION_BUFFER_SIZE       16
 
@@ -668,7 +1094,7 @@ nvmlReturn_t DECLDIR nvmlSystemGetNVMLVersion(char *version, unsigned int length
  * @return 
  *         - \ref NVML_SUCCESS                 if \a name has been set
  *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
- *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a name is NULL
+ *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a name is NULL or \a length is 0.
  *         - \ref NVML_ERROR_NOT_FOUND         if process doesn't exists
  *         - \ref NVML_ERROR_NO_PERMISSION     if the user doesn't have permission to perform this operation
  *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
@@ -836,6 +1262,7 @@ nvmlReturn_t DECLDIR nvmlUnitGetFanSpeedInfo(nvmlUnit_t unit, nvmlUnitFanSpeeds_
  *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
  *         - \ref NVML_ERROR_INSUFFICIENT_SIZE if \a deviceCount indicates that the \a devices array is too small
  *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a unit is invalid, either of \a deviceCount or \a devices is NULL
+ *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
  */
 nvmlReturn_t DECLDIR nvmlUnitGetDevices(nvmlUnit_t unit, unsigned int *deviceCount, nvmlDevice_t *devices);
 
@@ -863,8 +1290,8 @@ nvmlReturn_t DECLDIR nvmlSystemGetHicVersion(unsigned int *hwbcCount, nvmlHwbcEn
 /** @defgroup nvmlDeviceQueries Device Queries
  * This chapter describes that queries that NVML can perform against each device.
  * In each case the device is identified with an nvmlDevice_t handle. This handle is obtained by  
- * calling one of \ref nvmlDeviceGetHandleByIndex(), \ref nvmlDeviceGetHandleBySerial() or 
- * \ref nvmlDeviceGetHandleByPciBusId(). 
+ * calling one of \ref nvmlDeviceGetHandleByIndex(), \ref nvmlDeviceGetHandleBySerial(),
+ * \ref nvmlDeviceGetHandleByPciBusId(). or \ref nvmlDeviceGetHandleByUUID(). 
  *  @{
  */
 /***************************************************************************************************/
@@ -874,8 +1301,12 @@ nvmlReturn_t DECLDIR nvmlSystemGetHicVersion(unsigned int *hwbcCount, nvmlHwbcEn
  * 
  * For all products.
  *
- * On some platforms not all devices may be accessible due to permission restrictions. In these
- * cases the device count will reflect only the GPUs that NVML can access.
+ * Note: New nvmlDeviceGetCount_v2 (default in NVML 5.319) returns count of all devices in the system
+ *       even if nvmlDeviceGetHandleByIndex_v2 returns NVML_ERROR_NO_PERMISSION for such device.
+ *       Update your code to handle this error, or use NVML 4.304 or older nvml header file.
+ *       For backward binary compatibility reasons _v1 version of the API is still present in the shared
+ *       library.
+ *       Old _v1 version of nvmlDeviceGetCount doesn't count devices that NVML has no permission to talk to.
  *
  * @param deviceCount                          Reference in which to return the number of accessible devices
  * 
@@ -897,24 +1328,48 @@ nvmlReturn_t DECLDIR nvmlDeviceGetCount(unsigned int *deviceCount);
  *   are 0 and 1, corresponding to GPU 0 and GPU 1.
  *
  * The order in which NVML enumerates devices has no guarantees of consistency between reboots. For that reason it
- *   is recommended that devices be looked up by their PCI ids or board serial numbers. See 
- *   \ref nvmlDeviceGetHandleBySerial() and \ref nvmlDeviceGetHandleByPciBusId().
+ *   is recommended that devices be looked up by their PCI ids or UUID. See 
+ *   \ref nvmlDeviceGetHandleByUUID() and \ref nvmlDeviceGetHandleByPciBusId().
+ *
+ * Note: The NVML index may not correlate with other APIs, such as the CUDA device index.
+ *
+ * Starting from NVML 5, this API causes NVML to initialize the target GPU
+ * NVML may initialize additional GPUs if:
+ *  - The target GPU is an SLI slave
+ * 
+ * Note: New nvmlDeviceGetCount_v2 (default in NVML 5.319) returns count of all devices in the system
+ *       even if nvmlDeviceGetHandleByIndex_v2 returns NVML_ERROR_NO_PERMISSION for such device.
+ *       Update your code to handle this error, or use NVML 4.304 or older nvml header file.
+ *       For backward binary compatibility reasons _v1 version of the API is still present in the shared
+ *       library.
+ *       Old _v1 version of nvmlDeviceGetCount doesn't count devices that NVML has no permission to talk to.
+ *
+ *       This means that nvmlDeviceGetHandleByIndex_v2 and _v1 can return different devices for the same index.
+ *       If you don't touch macros that map old (_v1) versions to _v2 versions at the top of the file you don't
+ *       need to worry about that.
  *
  * @param index                                The index of the target GPU, >= 0 and < \a accessibleDevices
  * @param device                               Reference in which to return the device handle
  * 
  * @return 
- *         - \ref NVML_SUCCESS                 if \a device has been set
- *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
- *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a index is invalid or \a device is NULL
- *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
+ *         - \ref NVML_SUCCESS                  if \a device has been set
+ *         - \ref NVML_ERROR_UNINITIALIZED      if the library has not been successfully initialized
+ *         - \ref NVML_ERROR_INVALID_ARGUMENT   if \a index is invalid or \a device is NULL
+ *         - \ref NVML_ERROR_INSUFFICIENT_POWER if any attached devices have improperly attached external power cables
+ *         - \ref NVML_ERROR_NO_PERMISSION      if the user doesn't have permission to talk to this device
+ *         - \ref NVML_ERROR_IRQ_ISSUE          if NVIDIA kernel detected an interrupt issue with the attached GPUs
+ *         - \ref NVML_ERROR_GPU_IS_LOST        if the target GPU has fallen off the bus or is otherwise inaccessible
+ *         - \ref NVML_ERROR_UNKNOWN            on any unexpected error
+ *
+ * @see nvmlDeviceGetIndex
+ * @see nvmlDeviceGetCount
  */
 nvmlReturn_t DECLDIR nvmlDeviceGetHandleByIndex(unsigned int index, nvmlDevice_t *device);
 
 /**
  * Acquire the handle for a particular device, based on its board serial number.
  *
- * For all products.
+ * For Fermi &tm; or newer fully supported devices.
  *
  * This number corresponds to the value printed directly on the board, and to the value returned by
  *   \ref nvmlDeviceGetSerial().
@@ -923,16 +1378,22 @@ nvmlReturn_t DECLDIR nvmlDeviceGetHandleByIndex(unsigned int index, nvmlDevice_t
  *             of \ref nvmlDeviceGetHandleByUUID.
  *             For dual GPU boards this function will return NVML_ERROR_INVALID_ARGUMENT.
  *
+ * Starting from NVML 5, this API causes NVML to initialize the target GPU
+ * NVML may initialize additional GPUs as it searches for the target GPU
+ *
  * @param serial                               The board serial number of the target GPU
  * @param device                               Reference in which to return the device handle
  * 
  * @return 
- *         - \ref NVML_SUCCESS                 if \a device has been set
- *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
- *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a serial is invalid, \a device is NULL or more than one
- *                                             device has the same serial (dual GPU boards)
- *         - \ref NVML_ERROR_NOT_FOUND         if \a serial does not match a valid device on the system
- *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
+ *         - \ref NVML_SUCCESS                  if \a device has been set
+ *         - \ref NVML_ERROR_UNINITIALIZED      if the library has not been successfully initialized
+ *         - \ref NVML_ERROR_INVALID_ARGUMENT   if \a serial is invalid, \a device is NULL or more than one
+ *                                              device has the same serial (dual GPU boards)
+ *         - \ref NVML_ERROR_NOT_FOUND          if \a serial does not match a valid device on the system
+ *         - \ref NVML_ERROR_INSUFFICIENT_POWER if any attached devices have improperly attached external power cables
+ *         - \ref NVML_ERROR_IRQ_ISSUE          if NVIDIA kernel detected an interrupt issue with the attached GPUs
+ *         - \ref NVML_ERROR_GPU_IS_LOST        if any GPU has fallen off the bus or is otherwise inaccessible
+ *         - \ref NVML_ERROR_UNKNOWN            on any unexpected error
  *
  * @see nvmlDeviceGetSerial
  * @see nvmlDeviceGetHandleByUUID
@@ -947,12 +1408,18 @@ nvmlReturn_t DECLDIR nvmlDeviceGetHandleBySerial(const char *serial, nvmlDevice_
  * @param uuid                                 The UUID of the target GPU
  * @param device                               Reference in which to return the device handle
  * 
+ * Starting from NVML 5, this API causes NVML to initialize the target GPU
+ * NVML may initialize additional GPUs as it searches for the target GPU
+ *
  * @return 
- *         - \ref NVML_SUCCESS                 if \a device has been set
- *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
- *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a uuid is invalid or \a device is null
- *         - \ref NVML_ERROR_NOT_FOUND         if \a uuid does not match a valid device on the system
- *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
+ *         - \ref NVML_SUCCESS                  if \a device has been set
+ *         - \ref NVML_ERROR_UNINITIALIZED      if the library has not been successfully initialized
+ *         - \ref NVML_ERROR_INVALID_ARGUMENT   if \a uuid is invalid or \a device is null
+ *         - \ref NVML_ERROR_NOT_FOUND          if \a uuid does not match a valid device on the system
+ *         - \ref NVML_ERROR_INSUFFICIENT_POWER if any attached devices have improperly attached external power cables
+ *         - \ref NVML_ERROR_IRQ_ISSUE          if NVIDIA kernel detected an interrupt issue with the attached GPUs
+ *         - \ref NVML_ERROR_GPU_IS_LOST        if any GPU has fallen off the bus or is otherwise inaccessible
+ *         - \ref NVML_ERROR_UNKNOWN            on any unexpected error
  *
  * @see nvmlDeviceGetUUID
  */
@@ -965,15 +1432,26 @@ nvmlReturn_t DECLDIR nvmlDeviceGetHandleByUUID(const char *uuid, nvmlDevice_t *d
  *
  * This value corresponds to the nvmlPciInfo_t::busId returned by \ref nvmlDeviceGetPciInfo().
  *
+ * Starting from NVML 5, this API causes NVML to initialize the target GPU
+ * NVML may initialize additional GPUs if:
+ *  - The target GPU is an SLI slave
+ *
+ * \note NVML 4.304 and older version of nvmlDeviceGetHandleByPciBusId"_v1" returns NVML_ERROR_NOT_FOUND 
+ *       instead of NVML_ERROR_NO_PERMISSION.
+ *
  * @param pciBusId                             The PCI bus id of the target GPU
  * @param device                               Reference in which to return the device handle
  * 
  * @return 
- *         - \ref NVML_SUCCESS                 if \a device has been set
- *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
- *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a pciBusId is invalid or \a device is NULL
- *         - \ref NVML_ERROR_NOT_FOUND         if \a pciBusId does not match a valid device on the system
- *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
+ *         - \ref NVML_SUCCESS                  if \a device has been set
+ *         - \ref NVML_ERROR_UNINITIALIZED      if the library has not been successfully initialized
+ *         - \ref NVML_ERROR_INVALID_ARGUMENT   if \a pciBusId is invalid or \a device is NULL
+ *         - \ref NVML_ERROR_NOT_FOUND          if \a pciBusId does not match a valid device on the system
+ *         - \ref NVML_ERROR_INSUFFICIENT_POWER if the attached device has improperly attached external power cables
+ *         - \ref NVML_ERROR_NO_PERMISSION      if the user doesn't have permission to talk to this device
+ *         - \ref NVML_ERROR_IRQ_ISSUE          if NVIDIA kernel detected an interrupt issue with the attached GPUs
+ *         - \ref NVML_ERROR_GPU_IS_LOST        if the target GPU has fallen off the bus or is otherwise inaccessible
+ *         - \ref NVML_ERROR_UNKNOWN            on any unexpected error
  */
 nvmlReturn_t DECLDIR nvmlDeviceGetHandleByPciBusId(const char *pciBusId, nvmlDevice_t *device);
 
@@ -995,13 +1473,64 @@ nvmlReturn_t DECLDIR nvmlDeviceGetHandleByPciBusId(const char *pciBusId, nvmlDev
  *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
  *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device is invalid, or \a name is NULL
  *         - \ref NVML_ERROR_INSUFFICIENT_SIZE if \a length is too small
+ *         - \ref NVML_ERROR_GPU_IS_LOST       if the target GPU has fallen off the bus or is otherwise inaccessible
+ *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
  */
 nvmlReturn_t DECLDIR nvmlDeviceGetName(nvmlDevice_t device, char *name, unsigned int length);
 
 /**
+ * Retrieves the brand of this device.
+ *
+ * For all products.
+ *
+ * The type is a member of \ref nvmlBrandType_t defined above.
+ *
+ * @param device                               The identifier of the target device
+ * @param type                                 Reference in which to return the product brand type
+ *
+ * @return
+ *         - \ref NVML_SUCCESS                 if \a name has been set
+ *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
+ *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device is invalid, or \a type is NULL
+ *         - \ref NVML_ERROR_GPU_IS_LOST       if the target GPU has fallen off the bus or is otherwise inaccessible
+ *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
+ */
+nvmlReturn_t DECLDIR nvmlDeviceGetBrand(nvmlDevice_t device, nvmlBrandType_t *type);
+
+/**
+ * Retrieves the NVML index of this device.
+ *
+ * For all products.
+ * 
+ * Valid indices are derived from the \a accessibleDevices count returned by 
+ *   \ref nvmlDeviceGetCount(). For example, if \a accessibleDevices is 2 the valid indices  
+ *   are 0 and 1, corresponding to GPU 0 and GPU 1.
+ *
+ * The order in which NVML enumerates devices has no guarantees of consistency between reboots. For that reason it
+ *   is recommended that devices be looked up by their PCI ids or GPU UUID. See 
+ *   \ref nvmlDeviceGetHandleByPciBusId() and \ref nvmlDeviceGetHandleByUUID().
+ *
+ * Note: The NVML index may not correlate with other APIs, such as the CUDA device index.
+ *
+ * @param device                               The identifier of the target device
+ * @param index                                Reference in which to return the NVML index of the device
+ *
+ * @return 
+ *         - \ref NVML_SUCCESS                 if \a index has been set
+ *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
+ *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device is invalid, or \a index is NULL
+ *         - \ref NVML_ERROR_GPU_IS_LOST       if the target GPU has fallen off the bus or is otherwise inaccessible
+ *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
+ *
+ * @see nvmlDeviceGetHandleByIndex()
+ * @see nvmlDeviceGetCount()
+ */
+nvmlReturn_t DECLDIR nvmlDeviceGetIndex(nvmlDevice_t device, unsigned int *index);
+
+/**
  * Retrieves the globally unique board serial number associated with this device's board.
  *
- * For Tesla &tm; and Quadro &reg; products from the Fermi and Kepler families.
+ * For all products with an inforom.
  *
  * The serial number is an alphanumeric string that will not exceed 30 characters (including the NULL terminator).
  * This number matches the serial number tag that is physically attached to the board.  See \ref
@@ -1017,14 +1546,130 @@ nvmlReturn_t DECLDIR nvmlDeviceGetName(nvmlDevice_t device, char *name, unsigned
  *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device is invalid, or \a serial is NULL
  *         - \ref NVML_ERROR_INSUFFICIENT_SIZE if \a length is too small
  *         - \ref NVML_ERROR_NOT_SUPPORTED     if the device does not support this feature
+ *         - \ref NVML_ERROR_GPU_IS_LOST       if the target GPU has fallen off the bus or is otherwise inaccessible
+ *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
  */
 nvmlReturn_t DECLDIR nvmlDeviceGetSerial(nvmlDevice_t device, char *serial, unsigned int length);
+
+/**
+ * Retrieves an array of unsigned ints (sized to cpuSetSize) of bitmasks with the ideal CPU affinity for the device
+ * For example, if processors 0, 1, 32, and 33 are ideal for the device and cpuSetSize == 2,
+ *     result[0] = 0x3, result[1] = 0x3
+ *
+ * For Kepler &tm; or newer fully supported devices.
+ * Supported on Linux only.
+ *
+ * @param device                               The identifier of the target device
+ * @param cpuSetSize                           The size of the cpuSet array that is safe to access
+ * @param cpuSet                               Array reference in which to return a bitmask of CPUs, 64 CPUs per 
+ *                                                 unsigned long on 64-bit machines, 32 on 32-bit machines
+ *
+ * @return 
+ *         - \ref NVML_SUCCESS                 if \a cpuAffinity has been filled
+ *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
+ *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device is invalid, cpuSetSize == 0, or cpuSet is NULL
+ *         - \ref NVML_ERROR_NOT_SUPPORTED     if the device does not support this feature
+ *         - \ref NVML_ERROR_GPU_IS_LOST       if the target GPU has fallen off the bus or is otherwise inaccessible
+ *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
+ */
+nvmlReturn_t DECLDIR nvmlDeviceGetCpuAffinity(nvmlDevice_t device, unsigned int cpuSetSize, unsigned long *cpuSet);
+
+/**
+ * Sets the ideal affinity for a device using the guidelines given in nvmlDeviceGetCpuAffinity()
+ * Currently supports up to 64 processors.
+ *
+ * For Kepler &tm; or newer fully supported devices.
+ * Supported on Linux only.
+ *
+ * @param device                               The identifier of the target device
+ *
+ * @return 
+ *         - \ref NVML_SUCCESS                 if the calling process has been successfully bound
+ *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
+ *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device is invalid
+ *         - \ref NVML_ERROR_NOT_SUPPORTED     if the device does not support this feature
+ *         - \ref NVML_ERROR_GPU_IS_LOST       if the target GPU has fallen off the bus or is otherwise inaccessible
+ *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
+ */
+nvmlReturn_t DECLDIR nvmlDeviceSetCpuAffinity(nvmlDevice_t device);
+
+/**
+ * Clear all affinity bindings
+ *
+ * For Kepler &tm; or newer fully supported devices.
+ * Supported on Linux only.
+ *
+ * @param device                               The identifier of the target device
+ *
+ * @return 
+ *         - \ref NVML_SUCCESS                 if the calling process has been successfully unbound
+ *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device is invalid
+ *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
+ *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
+ */
+nvmlReturn_t DECLDIR nvmlDeviceClearCpuAffinity(nvmlDevice_t device);
+
+/**
+ * Retrieve the common ancestor for two devices
+ * For all products.
+ * Supported on Linux only.
+ *
+ * @param device1                              The identifier of the first device
+ * @param device2                              The identifier of the second device
+ * @param pathInfo                             A \ref nvmlGpuTopologyLevel_t that gives the path type
+ *
+ * @return
+ *         - \ref NVML_SUCCESS                 if \a pathInfo has been set
+ *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device1, or \a device2 is invalid, or \a pathInfo is NULL
+ *         - \ref NVML_ERROR_NOT_SUPPORTED     if the device or OS does not support this feature
+ *         - \ref NVML_ERROR_UNKNOWN           an error has occurred in underlying topology discovery
+ */
+nvmlReturn_t DECLDIR nvmlDeviceGetTopologyCommonAncestor(nvmlDevice_t device1, nvmlDevice_t device2, nvmlGpuTopologyLevel_t *pathInfo);
+
+/**
+ * Retrieve the set of GPUs that are nearest to a given device at a specific interconnectivity level
+ * For all products.
+ * Supported on Linux only.
+ *
+ * @param device                               The identifier of the first device
+ * @param level                                The \ref nvmlGpuTopologyLevel_t level to search for other GPUs
+ * @param count                                When zero, is set to the number of matching GPUs such that \a deviceArray 
+ *                                             can be malloc'd.  When non-zero, \a deviceArray will be filled with \a count
+ *                                             number of device handles.
+ * @param deviceArray                          An array of device handles for GPUs found at \a level
+ *
+ * @return
+ *         - \ref NVML_SUCCESS                 if \a deviceArray or \a count (if initially zero) has been set
+ *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device, \a level, or \a count is invalid, or \a deviceArray is NULL with a non-zero \a count
+ *         - \ref NVML_ERROR_NOT_SUPPORTED     if the device or OS does not support this feature
+ *         - \ref NVML_ERROR_UNKNOWN           an error has occurred in underlying topology discovery
+ */
+nvmlReturn_t DECLDIR nvmlDeviceGetTopologyNearestGpus(nvmlDevice_t device, nvmlGpuTopologyLevel_t level, unsigned int *count, nvmlDevice_t *deviceArray);
+
+/**
+ * Retrieve the set of GPUs that have a CPU affinity with the given CPU number
+ * For all products.
+ * Supported on Linux only.
+ *
+ * @param cpuNumber                            The CPU number
+ * @param count                                When zero, is set to the number of matching GPUs such that \a deviceArray 
+ *                                             can be malloc'd.  When non-zero, \a deviceArray will be filled with \a count
+ *                                             number of device handles.
+ * @param deviceArray                          An array of device handles for GPUs found with affinity to \a cpuNumber
+ *
+ * @return
+ *         - \ref NVML_SUCCESS                 if \a deviceArray or \a count (if initially zero) has been set
+ *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a cpuNumber, or \a count is invalid, or \a deviceArray is NULL with a non-zero \a count
+ *         - \ref NVML_ERROR_NOT_SUPPORTED     if the device or OS does not support this feature
+ *         - \ref NVML_ERROR_UNKNOWN           an error has occurred in underlying topology discovery
+ */
+nvmlReturn_t DECLDIR nvmlSystemGetTopologyGpuSet(unsigned int cpuNumber, unsigned int *count, nvmlDevice_t *deviceArray);
 
 /**
  * Retrieves the globally unique immutable UUID associated with this device, as a 5 part hexadecimal string,
  * that augments the immutable, board serial identifier.
  *
- * For Tesla &tm; and Quadro &reg; products from the Fermi and Kepler families.
+ * For all products.
  *
  * The UUID is a globally unique identifier. It is the only available identifier for pre-Fermi-architecture products.
  * It does NOT correspond to any identifier printed on the board.  It will not exceed 80 characters in length
@@ -1040,19 +1685,39 @@ nvmlReturn_t DECLDIR nvmlDeviceGetSerial(nvmlDevice_t device, char *serial, unsi
  *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device is invalid, or \a uuid is NULL
  *         - \ref NVML_ERROR_INSUFFICIENT_SIZE if \a length is too small 
  *         - \ref NVML_ERROR_NOT_SUPPORTED     if the device does not support this feature
+ *         - \ref NVML_ERROR_GPU_IS_LOST       if the target GPU has fallen off the bus or is otherwise inaccessible
  *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
  */
 nvmlReturn_t DECLDIR nvmlDeviceGetUUID(nvmlDevice_t device, char *uuid, unsigned int length);
 
 /**
- * Retrieves the version information for the device's infoROM.
+ * Retrieves minor number for the device. The minor number for the device is such that the Nvidia device node file for 
+ * each GPU will have the form /dev/nvidia[minor number].
  *
- * For Tesla &tm; and Quadro &reg; products from the Fermi and Kepler families.
+ * For all products.
+ * Supported only for Linux
+ *
+ * @param device                                The identifier of the target device
+ * @param minorNumber                           Reference in which to return the minor number for the device
+ * @return
+ *         - \ref NVML_SUCCESS                 if the minor number is successfully retrieved
+ *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
+ *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device is invalid or \a minorNumber is NULL
+ *         - \ref NVML_ERROR_NOT_SUPPORTED     if this query is not supported by the device
+ *         - \ref NVML_ERROR_GPU_IS_LOST       if the target GPU has fallen off the bus or is otherwise inaccessible
+ *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
+ */
+nvmlReturn_t DECLDIR nvmlDeviceGetMinorNumber(nvmlDevice_t device, unsigned int *minorNumber);
+
+/**
+ * Retrieves the version information for the device's infoROM object.
+ *
+ * For all products with an inforom.
  *
  * Fermi and higher parts have non-volatile on-board memory for persisting device info, such as aggregate 
  * ECC counts. The version of the data structures in this memory may change from time to time. It will not
- * exceed 16 characters in length (including the NULL terminator).  See \ref
- * nvmlConstants::NVML_DEVICE_INFOROM_VERSION_BUFFER_SIZE.
+ * exceed 16 characters in length (including the NULL terminator).
+ * See \ref nvmlConstants::NVML_DEVICE_INFOROM_VERSION_BUFFER_SIZE.
  *
  * See \ref nvmlInforomObject_t for details on the available infoROM objects.
  *
@@ -1067,16 +1732,87 @@ nvmlReturn_t DECLDIR nvmlDeviceGetUUID(nvmlDevice_t device, char *uuid, unsigned
  *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a version is NULL
  *         - \ref NVML_ERROR_INSUFFICIENT_SIZE if \a length is too small 
  *         - \ref NVML_ERROR_NOT_SUPPORTED     if the device does not have an infoROM
+ *         - \ref NVML_ERROR_GPU_IS_LOST       if the target GPU has fallen off the bus or is otherwise inaccessible
  *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
+ *
+ * @see nvmlDeviceGetInforomImageVersion
  */
 nvmlReturn_t DECLDIR nvmlDeviceGetInforomVersion(nvmlDevice_t device, nvmlInforomObject_t object, char *version, unsigned int length);
 
 /**
+ * Retrieves the global infoROM image version
+ *
+ * For all products with an inforom.
+ *
+ * Image version just like VBIOS version uniquely describes the exact version of the infoROM flashed on the board 
+ * in contrast to infoROM object version which is only an indicator of supported features.
+ * Version string will not exceed 16 characters in length (including the NULL terminator).
+ * See \ref nvmlConstants::NVML_DEVICE_INFOROM_VERSION_BUFFER_SIZE.
+ *
+ * @param device                               The identifier of the target device
+ * @param version                              Reference in which to return the infoROM image version
+ * @param length                               The maximum allowed length of the string returned in \a version
+ *
+ * @return 
+ *         - \ref NVML_SUCCESS                 if \a version has been set
+ *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
+ *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a version is NULL
+ *         - \ref NVML_ERROR_INSUFFICIENT_SIZE if \a length is too small 
+ *         - \ref NVML_ERROR_NOT_SUPPORTED     if the device does not have an infoROM
+ *         - \ref NVML_ERROR_GPU_IS_LOST       if the target GPU has fallen off the bus or is otherwise inaccessible
+ *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
+ *
+ * @see nvmlDeviceGetInforomVersion
+ */
+nvmlReturn_t DECLDIR nvmlDeviceGetInforomImageVersion(nvmlDevice_t device, char *version, unsigned int length);
+
+/**
+ * Retrieves the checksum of the configuration stored in the device's infoROM.
+ *
+ * For all products with an inforom.
+ *
+ * Can be used to make sure that two GPUs have the exact same configuration.
+ * Current checksum takes into account configuration stored in PWR and ECC infoROM objects.
+ * Checksum can change between driver releases or when user changes configuration (e.g. disable/enable ECC)
+ *
+ * @param device                               The identifier of the target device
+ * @param checksum                             Reference in which to return the infoROM configuration checksum
+ *
+ * @return 
+ *         - \ref NVML_SUCCESS                 if \a checksum has been set
+ *         - \ref NVML_ERROR_CORRUPTED_INFOROM if the device's checksum couldn't be retrieved due to infoROM corruption
+ *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
+ *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a checksum is NULL
+ *         - \ref NVML_ERROR_NOT_SUPPORTED     if the device does not support this feature
+ *         - \ref NVML_ERROR_GPU_IS_LOST       if the target GPU has fallen off the bus or is otherwise inaccessible
+ *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error 
+ */
+nvmlReturn_t DECLDIR nvmlDeviceGetInforomConfigurationChecksum(nvmlDevice_t device, unsigned int *checksum);
+
+/**
+ * Reads the infoROM from the flash and verifies the checksums.
+ *
+ * For all products with an inforom.
+ *
+ * @param device                               The identifier of the target device
+ *
+ * @return 
+ *         - \ref NVML_SUCCESS                 if infoROM is not corrupted
+ *         - \ref NVML_ERROR_CORRUPTED_INFOROM if the device's infoROM is corrupted
+ *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
+ *         - \ref NVML_ERROR_NOT_SUPPORTED     if the device does not support this feature
+ *         - \ref NVML_ERROR_GPU_IS_LOST       if the target GPU has fallen off the bus or is otherwise inaccessible
+ *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error 
+ */
+nvmlReturn_t DECLDIR nvmlDeviceValidateInforom(nvmlDevice_t device);
+
+/**
  * Retrieves the display mode for the device.
  *
- * For Tesla &tm; and Quadro &reg; products from the Fermi and Kepler families.
+ * For all products.
  *
- * This method indicates whether a physical display is currently connected to the device.
+ * This method indicates whether a physical display (e.g. monitor) is currently connected to
+ * any of the device's connectors.
  *
  * See \ref nvmlEnableState_t for details on allowed modes.
  *
@@ -1088,13 +1824,40 @@ nvmlReturn_t DECLDIR nvmlDeviceGetInforomVersion(nvmlDevice_t device, nvmlInforo
  *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
  *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device is invalid or \a display is NULL
  *         - \ref NVML_ERROR_NOT_SUPPORTED     if the device does not support this feature
+ *         - \ref NVML_ERROR_GPU_IS_LOST       if the target GPU has fallen off the bus or is otherwise inaccessible
+ *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
  */
 nvmlReturn_t DECLDIR nvmlDeviceGetDisplayMode(nvmlDevice_t device, nvmlEnableState_t *display);
 
 /**
+ * Retrieves the display active state for the device.
+ *
+ * For all products.
+ *
+ * This method indicates whether a display is initialized on the device.
+ * For example whether X Server is attached to this device and has allocated memory for the screen.
+ *
+ * Display can be active even when no monitor is physically attached.
+ *
+ * See \ref nvmlEnableState_t for details on allowed modes.
+ *
+ * @param device                               The identifier of the target device
+ * @param isActive                             Reference in which to return the display active state
+ * 
+ * @return 
+ *         - \ref NVML_SUCCESS                 if \a isActive has been set
+ *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
+ *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device is invalid or \a isActive is NULL
+ *         - \ref NVML_ERROR_NOT_SUPPORTED     if the device does not support this feature
+ *         - \ref NVML_ERROR_GPU_IS_LOST       if the target GPU has fallen off the bus or is otherwise inaccessible
+ *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
+ */
+nvmlReturn_t DECLDIR nvmlDeviceGetDisplayActive(nvmlDevice_t device, nvmlEnableState_t *isActive);
+
+/**
  * Retrieves the persistence mode associated with this device.
  *
- * For all CUDA-capable products.
+ * For all products.
  * For Linux only.
  *
  * When driver persistence mode is enabled the driver software state is not torn down when the last 
@@ -1110,6 +1873,7 @@ nvmlReturn_t DECLDIR nvmlDeviceGetDisplayMode(nvmlDevice_t device, nvmlEnableSta
  *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
  *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device is invalid or \a mode is NULL
  *         - \ref NVML_ERROR_NOT_SUPPORTED     if the device does not support this feature
+ *         - \ref NVML_ERROR_GPU_IS_LOST       if the target GPU has fallen off the bus or is otherwise inaccessible
  *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
  *
  * @see nvmlDeviceSetPersistenceMode()
@@ -1130,6 +1894,7 @@ nvmlReturn_t DECLDIR nvmlDeviceGetPersistenceMode(nvmlDevice_t device, nvmlEnabl
  *         - \ref NVML_SUCCESS                 if \a pci has been populated
  *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
  *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device is invalid or \a pci is NULL
+ *         - \ref NVML_ERROR_GPU_IS_LOST       if the target GPU has fallen off the bus or is otherwise inaccessible
  *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
  */
 nvmlReturn_t DECLDIR nvmlDeviceGetPciInfo(nvmlDevice_t device, nvmlPciInfo_t *pci);
@@ -1140,7 +1905,7 @@ nvmlReturn_t DECLDIR nvmlDeviceGetPciInfo(nvmlDevice_t device, nvmlPciInfo_t *pc
  * I.E. for a generation 2 PCIe device attached to a generation 1 PCIe bus the max link generation this function will
  * report is generation 1.
  * 
- * For Tesla &tm; and Quadro &reg; products from the Fermi and Kepler families.
+ * For Fermi &tm; or newer fully supported devices.
  * 
  * @param device                               The identifier of the target device
  * @param maxLinkGen                           Reference in which to return the max PCIe link generation
@@ -1150,6 +1915,7 @@ nvmlReturn_t DECLDIR nvmlDeviceGetPciInfo(nvmlDevice_t device, nvmlPciInfo_t *pc
  *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
  *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device is invalid or \a maxLinkGen is null
  *         - \ref NVML_ERROR_NOT_SUPPORTED     if PCIe link information is not available
+ *         - \ref NVML_ERROR_GPU_IS_LOST       if the target GPU has fallen off the bus or is otherwise inaccessible
  *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
  */
 nvmlReturn_t DECLDIR nvmlDeviceGetMaxPcieLinkGeneration(nvmlDevice_t device, unsigned int *maxLinkGen);
@@ -1160,7 +1926,7 @@ nvmlReturn_t DECLDIR nvmlDeviceGetMaxPcieLinkGeneration(nvmlDevice_t device, uns
  * I.E. for a device with a 16x PCIe bus width attached to a 8x PCIe system bus this function will report
  * a max link width of 8.
  * 
- * For Tesla &tm; and Quadro &reg; products from the Fermi and Kepler families.
+ * For Fermi &tm; or newer fully supported devices.
  * 
  * @param device                               The identifier of the target device
  * @param maxLinkWidth                         Reference in which to return the max PCIe link generation
@@ -1170,6 +1936,7 @@ nvmlReturn_t DECLDIR nvmlDeviceGetMaxPcieLinkGeneration(nvmlDevice_t device, uns
  *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
  *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device is invalid or \a maxLinkWidth is null
  *         - \ref NVML_ERROR_NOT_SUPPORTED     if PCIe link information is not available
+ *         - \ref NVML_ERROR_GPU_IS_LOST       if the target GPU has fallen off the bus or is otherwise inaccessible
  *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
  */
 nvmlReturn_t DECLDIR nvmlDeviceGetMaxPcieLinkWidth(nvmlDevice_t device, unsigned int *maxLinkWidth);
@@ -1177,16 +1944,17 @@ nvmlReturn_t DECLDIR nvmlDeviceGetMaxPcieLinkWidth(nvmlDevice_t device, unsigned
 /**
  * Retrieves the current PCIe link generation
  * 
- * For Tesla &tm; and Quadro &reg; products from the Fermi and Kepler families.
+ * For Fermi &tm; or newer fully supported devices.
  * 
  * @param device                               The identifier of the target device
- * @param currLinkGen                          Reference in which to return the max PCIe link generation
+ * @param currLinkGen                          Reference in which to return the current PCIe link generation
  * 
  * @return 
  *         - \ref NVML_SUCCESS                 if \a currLinkGen has been populated
  *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
  *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device is invalid or \a currLinkGen is null
  *         - \ref NVML_ERROR_NOT_SUPPORTED     if PCIe link information is not available
+ *         - \ref NVML_ERROR_GPU_IS_LOST       if the target GPU has fallen off the bus or is otherwise inaccessible
  *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
  */
 nvmlReturn_t DECLDIR nvmlDeviceGetCurrPcieLinkGeneration(nvmlDevice_t device, unsigned int *currLinkGen);
@@ -1194,24 +1962,64 @@ nvmlReturn_t DECLDIR nvmlDeviceGetCurrPcieLinkGeneration(nvmlDevice_t device, un
 /**
  * Retrieves the current PCIe link width
  * 
- * For Tesla &tm; and Quadro &reg; products from the Fermi and Kepler families.
+ * For Fermi &tm; or newer fully supported devices.
  * 
  * @param device                               The identifier of the target device
- * @param currLinkWidth                        Reference in which to return the max PCIe link generation
+ * @param currLinkWidth                        Reference in which to return the current PCIe link generation
  * 
  * @return 
  *         - \ref NVML_SUCCESS                 if \a currLinkWidth has been populated
  *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
  *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device is invalid or \a currLinkWidth is null
  *         - \ref NVML_ERROR_NOT_SUPPORTED     if PCIe link information is not available
+ *         - \ref NVML_ERROR_GPU_IS_LOST       if the target GPU has fallen off the bus or is otherwise inaccessible
  *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
  */
 nvmlReturn_t DECLDIR nvmlDeviceGetCurrPcieLinkWidth(nvmlDevice_t device, unsigned int *currLinkWidth);
 
 /**
+ * Retrieve PCIe utilization information.
+ * This function is querying a byte counter over a 20ms interval and thus is the 
+ *   PCIe throughput over that interval.
+ *
+ * For Maxwell &tm; or newer fully supported devices.
+ *
+ * @param device                               The identifier of the target device
+ * @param counter                              The specific counter that should be queried \ref nvmlPcieUtilCounter_t
+ * @param value                                Reference in which to return throughput in KB/s
+ *
+ * @return
+ *         - \ref NVML_SUCCESS                 if \a value has been set
+ *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
+ *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device or \a counter is invalid, or \a value is NULL
+ *         - \ref NVML_ERROR_NOT_SUPPORTED     if the device does not support this feature
+ *         - \ref NVML_ERROR_GPU_IS_LOST       if the target GPU has fallen off the bus or is otherwise inaccessible
+ *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
+ */
+nvmlReturn_t DECLDIR nvmlDeviceGetPcieThroughput(nvmlDevice_t device, nvmlPcieUtilCounter_t counter, unsigned int *value);
+
+/**  
+ * Retrieve the PCIe replay counter and rollover information
+ *
+ * For Kepler &tm; or newer fully supported devices.
+ *
+ * @param device                               The identifier of the target device
+ * @param value                                Reference in which to return the counter's value
+ *
+ * @return
+ *         - \ref NVML_SUCCESS                 if \a value and \a rollover have been set
+ *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
+ *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device is invalid, or \a value or \a rollover are NULL
+ *         - \ref NVML_ERROR_NOT_SUPPORTED     if the device does not support this feature
+ *         - \ref NVML_ERROR_GPU_IS_LOST       if the target GPU has fallen off the bus or is otherwise inaccessible
+ *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
+ */
+nvmlReturn_t DECLDIR nvmlDeviceGetPcieReplayCounter(nvmlDevice_t device, unsigned int *value);
+
+/**
  * Retrieves the current clock speeds for the device.
  *
- * For Tesla &tm; and Quadro &reg; products from the Fermi and Kepler families.
+ * For Fermi &tm; or newer fully supported devices.
  *
  * See \ref nvmlClockType_t for details on available clock information.
  *
@@ -1224,6 +2032,7 @@ nvmlReturn_t DECLDIR nvmlDeviceGetCurrPcieLinkWidth(nvmlDevice_t device, unsigne
  *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
  *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device is invalid or \a clock is NULL
  *         - \ref NVML_ERROR_NOT_SUPPORTED     if the device cannot report the specified clock
+ *         - \ref NVML_ERROR_GPU_IS_LOST       if the target GPU has fallen off the bus or is otherwise inaccessible
  *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
  */
 nvmlReturn_t DECLDIR nvmlDeviceGetClockInfo(nvmlDevice_t device, nvmlClockType_t type, unsigned int *clock);
@@ -1231,9 +2040,12 @@ nvmlReturn_t DECLDIR nvmlDeviceGetClockInfo(nvmlDevice_t device, nvmlClockType_t
 /**
  * Retrieves the maximum clock speeds for the device.
  *
- * For Tesla &tm; and Quadro &reg; products from the Fermi and Kepler families.
+ * For Fermi &tm; or newer fully supported devices.
  *
  * See \ref nvmlClockType_t for details on available clock information.
+ *
+ * \note On GPUs from Fermi family current P0 clocks (reported by \ref nvmlDeviceGetClockInfo) can differ from max clocks
+ *       by few MHz.
  *
  * @param device                               The identifier of the target device
  * @param type                                 Identify which clock domain to query
@@ -1244,12 +2056,210 @@ nvmlReturn_t DECLDIR nvmlDeviceGetClockInfo(nvmlDevice_t device, nvmlClockType_t
  *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
  *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device is invalid or \a clock is NULL
  *         - \ref NVML_ERROR_NOT_SUPPORTED     if the device cannot report the specified clock
+ *         - \ref NVML_ERROR_GPU_IS_LOST       if the target GPU has fallen off the bus or is otherwise inaccessible
  *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
  */
 nvmlReturn_t DECLDIR nvmlDeviceGetMaxClockInfo(nvmlDevice_t device, nvmlClockType_t type, unsigned int *clock);
 
 /**
- * Retrieves the current operating speed of the device's fan.
+ * Retrieves the current setting of a clock that applications will use unless an overspec situation occurs.
+ * Can be changed using \ref nvmlDeviceSetApplicationsClocks.
+ *
+ * For Kepler &tm; or newer fully supported devices.
+ *
+ * @param device                               The identifier of the target device
+ * @param clockType                            Identify which clock domain to query
+ * @param clockMHz                             Reference in which to return the clock in MHz
+ * 
+ * @return 
+ *         - \ref NVML_SUCCESS                 if \a clockMHz has been set
+ *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
+ *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device is invalid or \a clockMHz is NULL or \a clockType is invalid
+ *         - \ref NVML_ERROR_NOT_SUPPORTED     if the device does not support this feature
+ *         - \ref NVML_ERROR_GPU_IS_LOST       if the target GPU has fallen off the bus or is otherwise inaccessible
+ *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
+ */
+nvmlReturn_t DECLDIR nvmlDeviceGetApplicationsClock(nvmlDevice_t device, nvmlClockType_t clockType, unsigned int *clockMHz);
+
+/**
+ * Retrieves the default applications clock that GPU boots with or 
+ * defaults to after \ref nvmlDeviceResetApplicationsClocks call.
+ *
+ * For Kepler &tm; or newer fully supported devices.
+ *
+ * @param device                               The identifier of the target device
+ * @param clockType                            Identify which clock domain to query
+ * @param clockMHz                             Reference in which to return the default clock in MHz
+ * 
+ * @return 
+ *         - \ref NVML_SUCCESS                 if \a clockMHz has been set
+ *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
+ *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device is invalid or \a clockMHz is NULL or \a clockType is invalid
+ *         - \ref NVML_ERROR_NOT_SUPPORTED     if the device does not support this feature
+ *         - \ref NVML_ERROR_GPU_IS_LOST       if the target GPU has fallen off the bus or is otherwise inaccessible
+ *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
+ *
+ * \see nvmlDeviceGetApplicationsClock
+ */
+nvmlReturn_t DECLDIR nvmlDeviceGetDefaultApplicationsClock(nvmlDevice_t device, nvmlClockType_t clockType, unsigned int *clockMHz);
+
+/**
+ * Resets the application clock to the default value
+ *
+ * This is the applications clock that will be used after system reboot or driver reload.
+ * Default value is constant, but the current value an be changed using \ref nvmlDeviceSetApplicationsClocks.
+ *
+ * @see nvmlDeviceGetApplicationsClock
+ * @see nvmlDeviceSetApplicationsClocks
+ *
+ * For Fermi &tm; or newer non-GeForce fully supported devices and Maxwell or newer GeForce devices.
+ *
+ * @param device                               The identifier of the target device
+ * 
+ * @return 
+ *         - \ref NVML_SUCCESS                 if new settings were successfully set
+ *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
+ *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device is invalid
+ *         - \ref NVML_ERROR_NOT_SUPPORTED     if the device does not support this feature
+ *         - \ref NVML_ERROR_GPU_IS_LOST       if the target GPU has fallen off the bus or is otherwise inaccessible
+ *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
+ */
+nvmlReturn_t DECLDIR nvmlDeviceResetApplicationsClocks(nvmlDevice_t device);
+
+/**
+ * Retrieves the list of possible memory clocks that can be used as an argument for \ref nvmlDeviceSetApplicationsClocks.
+ *
+ * For Kepler &tm; or newer fully supported devices.
+ *
+ * @param device                               The identifier of the target device
+ * @param count                                Reference in which to provide the \a clocksMHz array size, and
+ *                                             to return the number of elements
+ * @param clocksMHz                            Reference in which to return the clock in MHz
+ * 
+ * @return 
+ *         - \ref NVML_SUCCESS                 if \a count and \a clocksMHz have been populated 
+ *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
+ *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device is invalid or \a count is NULL
+ *         - \ref NVML_ERROR_NOT_SUPPORTED     if the device does not support this feature
+ *         - \ref NVML_ERROR_INSUFFICIENT_SIZE if \a count is too small (\a count is set to the number of
+ *                                                required elements)
+ *         - \ref NVML_ERROR_GPU_IS_LOST       if the target GPU has fallen off the bus or is otherwise inaccessible
+ *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
+ *
+ * @see nvmlDeviceSetApplicationsClocks
+ * @see nvmlDeviceGetSupportedGraphicsClocks
+ */
+nvmlReturn_t DECLDIR nvmlDeviceGetSupportedMemoryClocks(nvmlDevice_t device, unsigned int *count, unsigned int *clocksMHz);
+
+/**
+ * Retrieves the list of possible graphics clocks that can be used as an argument for \ref nvmlDeviceSetApplicationsClocks.
+ *
+ * For Kepler &tm; or newer fully supported devices.
+ *
+ * @param device                               The identifier of the target device
+ * @param memoryClockMHz                       Memory clock for which to return possible graphics clocks
+ * @param count                                Reference in which to provide the \a clocksMHz array size, and
+ *                                             to return the number of elements
+ * @param clocksMHz                            Reference in which to return the clocks in MHz
+ * 
+ * @return 
+ *         - \ref NVML_SUCCESS                 if \a count and \a clocksMHz have been populated 
+ *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
+ *         - \ref NVML_ERROR_NOT_FOUND         if the specified \a memoryClockMHz is not a supported frequency
+ *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device is invalid or \a clock is NULL
+ *         - \ref NVML_ERROR_NOT_SUPPORTED     if the device does not support this feature
+ *         - \ref NVML_ERROR_INSUFFICIENT_SIZE if \a count is too small 
+ *         - \ref NVML_ERROR_GPU_IS_LOST       if the target GPU has fallen off the bus or is otherwise inaccessible
+ *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
+ *
+ * @see nvmlDeviceSetApplicationsClocks
+ * @see nvmlDeviceGetSupportedMemoryClocks
+ */
+nvmlReturn_t DECLDIR nvmlDeviceGetSupportedGraphicsClocks(nvmlDevice_t device, unsigned int memoryClockMHz, unsigned int *count, unsigned int *clocksMHz);
+
+/**
+ * Retrieve the current state of auto boosted clocks on a device and store it in \a isEnabled
+ *
+ * For Kepler &tm; or newer fully supported devices.
+ *
+ * Auto boosted clocks are enabled by default on some hardware, allowing the GPU to run at higher clock rates
+ * to maximize performance as thermal limits allow.
+ *
+ * @param device                               The identifier of the target device
+ * @param isEnabled                            Where to store the current state of auto boosted clocks of the target device
+ * @param defaultIsEnabled                     Where to store the default auto boosted clocks behavior of the target device that the device will
+ *                                                 revert to when no applications are using the GPU
+ *
+ * @return
+ *         - \ref NVML_SUCCESS                 If \a isEnabled has been been set with the auto boosted clocks state of \a device
+ *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
+ *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device is invalid or \a isEnabled is NULL
+ *         - \ref NVML_ERROR_NOT_SUPPORTED     if the device does not support auto boosted clocks
+ *         - \ref NVML_ERROR_GPU_IS_LOST       if the target GPU has fallen off the bus or is otherwise inaccessible
+ *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
+ *
+ */
+nvmlReturn_t DECLDIR nvmlDeviceGetAutoBoostedClocksEnabled(nvmlDevice_t device, nvmlEnableState_t *isEnabled, nvmlEnableState_t *defaultIsEnabled);
+
+/**
+ * Try to set the current state of auto boosted clocks on a device.
+ *
+ * For Kepler &tm; or newer fully supported devices.
+ *
+ * Auto boosted clocks are enabled by default on some hardware, allowing the GPU to run at higher clock rates
+ * to maximize performance as thermal limits allow. Auto boosted clocks should be disabled if fixed clock
+ * rates are desired.
+ * Non-root users may use this API by default but can be restricted by root from using this API by calling
+ * \ref nvmlDeviceSetAPIRestriction with apiType=NVML_RESTRICTED_API_SET_AUTO_BOOSTED_CLOCKS.
+ * Note: Persistence Mode is required to modify current Auto boost settings, therefore, it must be enabled.
+ *
+ * @param device                               The identifier of the target device
+ * @param enabled                              What state to try to set auto boosted clocks of the target device to
+ *
+ * @return
+ *         - \ref NVML_SUCCESS                 If the auto boosted clocks were successfully set to the state specified by \a enabled
+ *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
+ *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device is invalid
+ *         - \ref NVML_ERROR_NOT_SUPPORTED     if the device does not support auto boosted clocks
+ *         - \ref NVML_ERROR_GPU_IS_LOST       if the target GPU has fallen off the bus or is otherwise inaccessible
+ *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
+ *
+ */
+nvmlReturn_t DECLDIR nvmlDeviceSetAutoBoostedClocksEnabled(nvmlDevice_t device, nvmlEnableState_t enabled);
+
+/**
+ * Try to set the default state of auto boosted clocks on a device. This is the default state that auto boosted clocks will
+ * return to when no compute running processes (e.g. CUDA application which have an active context) are running
+ *
+ * For Kepler &tm; or newer non-GeForce fully supported devices and Maxwell or newer GeForce devices.
+ * Requires root/admin permissions.
+ *
+ * Auto boosted clocks are enabled by default on some hardware, allowing the GPU to run at higher clock rates
+ * to maximize performance as thermal limits allow. Auto boosted clocks should be disabled if fixed clock
+ * rates are desired.
+ *
+ * @param device                               The identifier of the target device
+ * @param enabled                              What state to try to set default auto boosted clocks of the target device to
+ * @param flags                                Flags that change the default behavior. Currently Unused.
+ *
+ * @return
+ *         - \ref NVML_SUCCESS                 If the auto boosted clock's default state was successfully set to the state specified by \a enabled
+ *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
+ *         - \ref NVML_ERROR_NO_PERMISSION     If the calling user does not have permission to change auto boosted clock's default state.
+ *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device is invalid
+ *         - \ref NVML_ERROR_NOT_SUPPORTED     if the device does not support auto boosted clocks
+ *         - \ref NVML_ERROR_GPU_IS_LOST       if the target GPU has fallen off the bus or is otherwise inaccessible
+ *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
+ *
+ */
+nvmlReturn_t DECLDIR nvmlDeviceSetDefaultAutoBoostedClocksEnabled(nvmlDevice_t device, nvmlEnableState_t enabled, unsigned int flags);
+
+
+/**
+ * Retrieves the intended operating speed of the device's fan.
+ *
+ * Note: The reported speed is the intended fan speed.  If the fan is physically blocked and unable to spin, the
+ * output will not match the actual fan speed.
  * 
  * For all discrete products with dedicated fans.
  *
@@ -1263,6 +2273,7 @@ nvmlReturn_t DECLDIR nvmlDeviceGetMaxClockInfo(nvmlDevice_t device, nvmlClockTyp
  *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
  *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device is invalid or \a speed is NULL
  *         - \ref NVML_ERROR_NOT_SUPPORTED     if the device does not have a fan
+ *         - \ref NVML_ERROR_GPU_IS_LOST       if the target GPU has fallen off the bus or is otherwise inaccessible
  *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
  */
 nvmlReturn_t DECLDIR nvmlDeviceGetFanSpeed(nvmlDevice_t device, unsigned int *speed);
@@ -1270,7 +2281,7 @@ nvmlReturn_t DECLDIR nvmlDeviceGetFanSpeed(nvmlDevice_t device, unsigned int *sp
 /**
  * Retrieves the current temperature readings for the device, in degrees C. 
  * 
- * For all discrete and S-class products.
+ * For all products.
  *
  * See \ref nvmlTemperatureSensors_t for details on available temperature sensors.
  *
@@ -1283,14 +2294,35 @@ nvmlReturn_t DECLDIR nvmlDeviceGetFanSpeed(nvmlDevice_t device, unsigned int *sp
  *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
  *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device is invalid, \a sensorType is invalid or \a temp is NULL
  *         - \ref NVML_ERROR_NOT_SUPPORTED     if the device does not have the specified sensor
+ *         - \ref NVML_ERROR_GPU_IS_LOST       if the target GPU has fallen off the bus or is otherwise inaccessible
  *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
  */
 nvmlReturn_t DECLDIR nvmlDeviceGetTemperature(nvmlDevice_t device, nvmlTemperatureSensors_t sensorType, unsigned int *temp);
 
 /**
+ * Retrieves the temperature threshold for the GPU with the specified threshold type in degrees C.
+ *
+ * For Kepler &tm; or newer fully supported devices.
+ *
+ * See \ref nvmlTemperatureThresholds_t for details on available temperature thresholds.
+ *
+ * @param device                               The identifier of the target device
+ * @param thresholdType                        The type of threshold value queried
+ * @param temp                                 Reference in which to return the temperature reading
+ * @return
+ *         - \ref NVML_SUCCESS                 if \a temp has been set
+ *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
+ *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device is invalid, \a thresholdType is invalid or \a temp is NULL
+ *         - \ref NVML_ERROR_NOT_SUPPORTED     if the device does not have a temperature sensor or is unsupported
+ *         - \ref NVML_ERROR_GPU_IS_LOST       if the target GPU has fallen off the bus or is otherwise inaccessible
+ *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
+ */
+nvmlReturn_t DECLDIR nvmlDeviceGetTemperatureThreshold(nvmlDevice_t device, nvmlTemperatureThresholds_t thresholdType, unsigned int *temp);
+
+/**
  * Retrieves the current performance state for the device. 
  *
- * For Tesla &tm; and Quadro &reg; products from the Fermi and Kepler families.
+ * For Fermi &tm; or newer fully supported devices.
  *
  * See \ref nvmlPstates_t for details on allowed performance states.
  *
@@ -1302,38 +2334,90 @@ nvmlReturn_t DECLDIR nvmlDeviceGetTemperature(nvmlDevice_t device, nvmlTemperatu
  *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
  *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device is invalid or \a pState is NULL
  *         - \ref NVML_ERROR_NOT_SUPPORTED     if the device does not support this feature
+ *         - \ref NVML_ERROR_GPU_IS_LOST       if the target GPU has fallen off the bus or is otherwise inaccessible
  *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
  */
 nvmlReturn_t DECLDIR nvmlDeviceGetPerformanceState(nvmlDevice_t device, nvmlPstates_t *pState);
 
 /**
- * Deprecated: Use \ref nvmlDeviceGetPerformanceState. This function exposes an incorrect generalization.
+ * Retrieves current clocks throttling reasons.
  *
- * Retrieve the current power state for the device. 
+ * For all fully supported products.
  *
- * For Tesla &tm; and Quadro &reg; products from the Fermi and Kepler families.
+ * \note More than one bit can be enabled at the same time. Multiple reasons can be affecting clocks at once.
  *
- * See \ref nvmlPstates_t for details on allowed power states.
+ * @param device                                The identifier of the target device
+ * @param clocksThrottleReasons                 Reference in which to return bitmask of active clocks throttle
+ *                                                  reasons
+ *
+ * @return 
+ *         - \ref NVML_SUCCESS                 if \a clocksThrottleReasons has been set
+ *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
+ *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device is invalid or \a clocksThrottleReasons is NULL
+ *         - \ref NVML_ERROR_NOT_SUPPORTED     if the device does not support this feature
+ *         - \ref NVML_ERROR_GPU_IS_LOST       if the target GPU has fallen off the bus or is otherwise inaccessible
+ *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
+ *
+ * @see nvmlClocksThrottleReasons
+ * @see nvmlDeviceGetSupportedClocksThrottleReasons
+ */
+nvmlReturn_t DECLDIR nvmlDeviceGetCurrentClocksThrottleReasons(nvmlDevice_t device, unsigned long long *clocksThrottleReasons);
+
+/**
+ * Retrieves bitmask of supported clocks throttle reasons that can be returned by 
+ * \ref nvmlDeviceGetCurrentClocksThrottleReasons
+ *
+ * For all fully supported products.
+ *
+ * This method is not supported on virtualized GPU environments.
  *
  * @param device                               The identifier of the target device
- * @param pState                               Reference in which to return the power state reading
+ * @param supportedClocksThrottleReasons       Reference in which to return bitmask of supported
+ *                                              clocks throttle reasons
+ *
+ * @return 
+ *         - \ref NVML_SUCCESS                 if \a supportedClocksThrottleReasons has been set
+ *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
+ *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device is invalid or \a supportedClocksThrottleReasons is NULL
+ *         - \ref NVML_ERROR_GPU_IS_LOST       if the target GPU has fallen off the bus or is otherwise inaccessible
+ *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
+ *
+ * @see nvmlClocksThrottleReasons
+ * @see nvmlDeviceGetCurrentClocksThrottleReasons
+ */
+nvmlReturn_t DECLDIR nvmlDeviceGetSupportedClocksThrottleReasons(nvmlDevice_t device, unsigned long long *supportedClocksThrottleReasons);
+
+/**
+ * Deprecated: Use \ref nvmlDeviceGetPerformanceState. This function exposes an incorrect generalization.
+ *
+ * Retrieve the current performance state for the device. 
+ *
+ * For Fermi &tm; or newer fully supported devices.
+ *
+ * See \ref nvmlPstates_t for details on allowed performance states.
+ *
+ * @param device                               The identifier of the target device
+ * @param pState                               Reference in which to return the performance state reading
  * 
  * @return 
  *         - \ref NVML_SUCCESS                 if \a pState has been set
  *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
  *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device is invalid or \a pState is NULL
  *         - \ref NVML_ERROR_NOT_SUPPORTED     if the device does not support this feature
+ *         - \ref NVML_ERROR_GPU_IS_LOST       if the target GPU has fallen off the bus or is otherwise inaccessible
  *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
  */
 nvmlReturn_t DECLDIR nvmlDeviceGetPowerState(nvmlDevice_t device, nvmlPstates_t *pState);
 
 /**
+ * This API has been deprecated.
+ *
  * Retrieves the power management mode associated with this device.
  *
- * For "GF11x" Tesla &tm; and Quadro &reg; products from the Fermi family.
+ * For products from the Fermi family.
  *     - Requires \a NVML_INFOROM_POWER version 3.0 or higher.
  *
- * For Tesla &tm; and Quadro &reg; products from the Kepler family.
+ * For from the Kepler or newer families.
  *     - Does not require \a NVML_INFOROM_POWER object.
  *
  * This flag indicates whether any power management algorithm is currently active on the device. An 
@@ -1350,18 +2434,15 @@ nvmlReturn_t DECLDIR nvmlDeviceGetPowerState(nvmlDevice_t device, nvmlPstates_t 
  *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
  *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device is invalid or \a mode is NULL
  *         - \ref NVML_ERROR_NOT_SUPPORTED     if the device does not support this feature
+ *         - \ref NVML_ERROR_GPU_IS_LOST       if the target GPU has fallen off the bus or is otherwise inaccessible
  *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
  */
 nvmlReturn_t DECLDIR nvmlDeviceGetPowerManagementMode(nvmlDevice_t device, nvmlEnableState_t *mode);
 
 /**
- * Retrieves the power management limit associated with this device, in milliwatts.
+ * Retrieves the power management limit associated with this device.
  *
- * For "GF11x" Tesla &tm; and Quadro &reg; products from the Fermi family.
- *     - Requires \a NVML_INFOROM_POWER version 3.0 or higher.
- *
- * For Tesla &tm; and Quadro &reg; products from the Kepler family.
- *     - Does not require \a NVML_INFOROM_POWER object.
+ * For Fermi &tm; or newer fully supported devices.
  *
  * The power limit defines the upper boundary for the card's power draw. If
  * the card's total power draw reaches this limit the power management algorithm kicks in.
@@ -1370,29 +2451,66 @@ nvmlReturn_t DECLDIR nvmlDeviceGetPowerManagementMode(nvmlDevice_t device, nvmlE
  * See \ref nvmlDeviceGetPowerManagementMode.
  *
  * @param device                               The identifier of the target device
- * @param limit                                Reference in which to return the power management limit
+ * @param limit                                Reference in which to return the power management limit in milliwatts
  * 
  * @return 
  *         - \ref NVML_SUCCESS                 if \a limit has been set
  *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
  *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device is invalid or \a limit is NULL
  *         - \ref NVML_ERROR_NOT_SUPPORTED     if the device does not support this feature
+ *         - \ref NVML_ERROR_GPU_IS_LOST       if the target GPU has fallen off the bus or is otherwise inaccessible
  *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
  */
 nvmlReturn_t DECLDIR nvmlDeviceGetPowerManagementLimit(nvmlDevice_t device, unsigned int *limit);
 
 /**
- * Retrieves the power usage reading for the device, in milliwatts. This is the power draw for the entire 
- * board, including GPU, memory, etc.
+ * Retrieves information about possible values of power management limits on this device.
  *
- * For "GF11x" Tesla &tm; and Quadro &reg; products from the Fermi family.
- *     - Requires \a NVML_INFOROM_POWER version 3.0 or higher.
+ * For Kepler &tm; or newer fully supported devices.
  *
- * For Tesla &tm; and Quadro &reg; products from the Kepler family.
- *     - Does not require \a NVML_INFOROM_POWER object.
+ * @param device                               The identifier of the target device
+ * @param minLimit                             Reference in which to return the minimum power management limit in milliwatts
+ * @param maxLimit                             Reference in which to return the maximum power management limit in milliwatts
+ * 
+ * @return 
+ *         - \ref NVML_SUCCESS                 if \a minLimit and \a maxLimit have been set
+ *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
+ *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device is invalid or \a minLimit or \a maxLimit is NULL
+ *         - \ref NVML_ERROR_NOT_SUPPORTED     if the device does not support this feature
+ *         - \ref NVML_ERROR_GPU_IS_LOST       if the target GPU has fallen off the bus or is otherwise inaccessible
+ *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
  *
- * The reading is accurate to within a range of +/- 5 watts. It is only available if power management mode
- * is supported. See \ref nvmlDeviceGetPowerManagementMode.
+ * @see nvmlDeviceSetPowerManagementLimit
+ */
+nvmlReturn_t DECLDIR nvmlDeviceGetPowerManagementLimitConstraints(nvmlDevice_t device, unsigned int *minLimit, unsigned int *maxLimit);
+
+/**
+ * Retrieves default power management limit on this device, in milliwatts.
+ * Default power management limit is a power management limit that the device boots with.
+ *
+ * For Kepler &tm; or newer fully supported devices.
+ *
+ * @param device                               The identifier of the target device
+ * @param defaultLimit                         Reference in which to return the default power management limit in milliwatts
+ * 
+ * @return 
+ *         - \ref NVML_SUCCESS                 if \a defaultLimit has been set
+ *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
+ *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device is invalid or \a defaultLimit is NULL
+ *         - \ref NVML_ERROR_NOT_SUPPORTED     if the device does not support this feature
+ *         - \ref NVML_ERROR_GPU_IS_LOST       if the target GPU has fallen off the bus or is otherwise inaccessible
+ *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
+ */
+nvmlReturn_t DECLDIR nvmlDeviceGetPowerManagementDefaultLimit(nvmlDevice_t device, unsigned int *defaultLimit);
+
+/**
+ * Retrieves power usage for this GPU in milliwatts and its associated circuitry (e.g. memory)
+ *
+ * For Fermi &tm; or newer fully supported devices.
+ *
+ * On Fermi and Kepler GPUs the reading is accurate to within +/- 5% of current power draw.
+ *
+ * It is only available if power management mode is supported. See \ref nvmlDeviceGetPowerManagementMode.
  *
  * @param device                               The identifier of the target device
  * @param power                                Reference in which to return the power usage information
@@ -1402,9 +2520,55 @@ nvmlReturn_t DECLDIR nvmlDeviceGetPowerManagementLimit(nvmlDevice_t device, unsi
  *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
  *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device is invalid or \a power is NULL
  *         - \ref NVML_ERROR_NOT_SUPPORTED     if the device does not support power readings
+ *         - \ref NVML_ERROR_GPU_IS_LOST       if the target GPU has fallen off the bus or is otherwise inaccessible
  *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
  */
 nvmlReturn_t DECLDIR nvmlDeviceGetPowerUsage(nvmlDevice_t device, unsigned int *power);
+
+/**
+ * Get the effective power limit that the driver enforces after taking into account all limiters
+ *
+ * Note: This can be different from the \ref nvmlDeviceGetPowerManagementLimit if other limits are set elsewhere
+ * This includes the out of band power limit interface
+ *
+ * For Kepler &tm; or newer fully supported devices.
+ *
+ * @param device                           The device to communicate with
+ * @param limit                            Reference in which to return the power management limit in milliwatts
+ *
+ * @return 
+ *         - \ref NVML_SUCCESS                 if \a limit has been set
+ *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
+ *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device is invalid or \a limit is NULL
+ *         - \ref NVML_ERROR_NOT_SUPPORTED     if the device does not support this feature
+ *         - \ref NVML_ERROR_GPU_IS_LOST       if the target GPU has fallen off the bus or is otherwise inaccessible
+ *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
+ */
+nvmlReturn_t DECLDIR nvmlDeviceGetEnforcedPowerLimit(nvmlDevice_t device, unsigned int *limit);
+
+/**
+ * Retrieves the current GOM and pending GOM (the one that GPU will switch to after reboot).
+ *
+ * For GK110 M-class and X-class Tesla &tm; products from the Kepler family.
+ * Modes \ref NVML_GOM_LOW_DP and \ref NVML_GOM_ALL_ON are supported on fully supported GeForce products.
+ * Not supported on Quadro &reg; and Tesla &tm; C-class products.
+ *
+ * @param device                               The identifier of the target device
+ * @param current                              Reference in which to return the current GOM
+ * @param pending                              Reference in which to return the pending GOM
+ * 
+ * @return 
+ *         - \ref NVML_SUCCESS                 if \a mode has been populated
+ *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
+ *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device is invalid or \a current or \a pending is NULL
+ *         - \ref NVML_ERROR_NOT_SUPPORTED     if the device does not support this feature
+ *         - \ref NVML_ERROR_GPU_IS_LOST       if the target GPU has fallen off the bus or is otherwise inaccessible
+ *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
+ *
+ * @see nvmlGpuOperationMode_t
+ * @see nvmlDeviceSetGpuOperationMode
+ */
+nvmlReturn_t DECLDIR nvmlDeviceGetGpuOperationMode(nvmlDevice_t device, nvmlGpuOperationMode_t *current, nvmlGpuOperationMode_t *pending);
 
 /**
  * Retrieves the amount of used, free and total memory available on the device, in bytes.
@@ -1426,6 +2590,7 @@ nvmlReturn_t DECLDIR nvmlDeviceGetPowerUsage(nvmlDevice_t device, unsigned int *
  *         - \ref NVML_SUCCESS                 if \a memory has been populated
  *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
  *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device is invalid or \a memory is NULL
+ *         - \ref NVML_ERROR_GPU_IS_LOST       if the target GPU has fallen off the bus or is otherwise inaccessible
  *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
  */
 nvmlReturn_t DECLDIR nvmlDeviceGetMemoryInfo(nvmlDevice_t device, nvmlMemory_t *memory);
@@ -1433,7 +2598,7 @@ nvmlReturn_t DECLDIR nvmlDeviceGetMemoryInfo(nvmlDevice_t device, nvmlMemory_t *
 /**
  * Retrieves the current compute mode for the device.
  *
- * For all CUDA-capable products.
+ * For all products.
  *
  * See \ref nvmlComputeMode_t for details on allowed compute modes.
  *
@@ -1445,6 +2610,7 @@ nvmlReturn_t DECLDIR nvmlDeviceGetMemoryInfo(nvmlDevice_t device, nvmlMemory_t *
  *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
  *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device is invalid or \a mode is NULL
  *         - \ref NVML_ERROR_NOT_SUPPORTED     if the device does not support this feature
+ *         - \ref NVML_ERROR_GPU_IS_LOST       if the target GPU has fallen off the bus or is otherwise inaccessible
  *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
  *
  * @see nvmlDeviceSetComputeMode()
@@ -1454,7 +2620,8 @@ nvmlReturn_t DECLDIR nvmlDeviceGetComputeMode(nvmlDevice_t device, nvmlComputeMo
 /**
  * Retrieves the current and pending ECC modes for the device.
  *
- * For Tesla &tm; and Quadro &reg; products from the Fermi and Kepler families.
+ * For Fermi &tm; or newer fully supported devices.
+ * Only applicable to devices with ECC.
  * Requires \a NVML_INFOROM_ECC version 1.0 or higher.
  *
  * Changing ECC modes requires a reboot. The "pending" ECC mode refers to the target mode following
@@ -1471,6 +2638,7 @@ nvmlReturn_t DECLDIR nvmlDeviceGetComputeMode(nvmlDevice_t device, nvmlComputeMo
  *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
  *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device is invalid or either \a current or \a pending is NULL
  *         - \ref NVML_ERROR_NOT_SUPPORTED     if the device does not support this feature
+ *         - \ref NVML_ERROR_GPU_IS_LOST       if the target GPU has fallen off the bus or is otherwise inaccessible
  *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
  *
  * @see nvmlDeviceSetEccMode()
@@ -1478,70 +2646,162 @@ nvmlReturn_t DECLDIR nvmlDeviceGetComputeMode(nvmlDevice_t device, nvmlComputeMo
 nvmlReturn_t DECLDIR nvmlDeviceGetEccMode(nvmlDevice_t device, nvmlEnableState_t *current, nvmlEnableState_t *pending);
 
 /**
+ * Retrieves the device boardId from 0-N.
+ * Devices with the same boardId indicate GPUs connected to the same PLX.  Use in conjunction with 
+ *  \ref nvmlDeviceGetMultiGpuBoard() to decide if they are on the same board as well.
+ *  The boardId returned is a unique ID for the current configuration.  Uniqueness and ordering across 
+ *  reboots and system configurations is not guaranteed (i.e. if a Tesla K40c returns 0x100 and
+ *  the two GPUs on a Tesla K10 in the same system returns 0x200 it is not guaranteed they will 
+ *  always return those values but they will always be different from each other).
+ *  
+ *
+ * For Fermi &tm; or newer fully supported devices.
+ *
+ * @param device                               The identifier of the target device
+ * @param boardId                              Reference in which to return the device's board ID
+ *
+ * @return
+ *         - \ref NVML_SUCCESS                 if \a boardId has been set
+ *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
+ *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device is invalid or \a boardId is NULL
+ *         - \ref NVML_ERROR_NOT_SUPPORTED     if the device does not support this feature
+ *         - \ref NVML_ERROR_GPU_IS_LOST       if the target GPU has fallen off the bus or is otherwise inaccessible
+ *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
+ */
+nvmlReturn_t DECLDIR nvmlDeviceGetBoardId(nvmlDevice_t device, unsigned int *boardId);
+
+/**
+ * Retrieves whether the device is on a Multi-GPU Board
+ * Devices that are on multi-GPU boards will set \a multiGpuBool to a non-zero value.
+ *
+ * For Fermi &tm; or newer fully supported devices.
+ *
+ * @param device                               The identifier of the target device
+ * @param multiGpuBool                         Reference in which to return a zero or non-zero value
+ *                                                 to indicate whether the device is on a multi GPU board
+ *
+ * @return
+ *         - \ref NVML_SUCCESS                 if \a multiGpuBool has been set
+ *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
+ *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device is invalid or \a multiGpuBool is NULL
+ *         - \ref NVML_ERROR_NOT_SUPPORTED     if the device does not support this feature
+ *         - \ref NVML_ERROR_GPU_IS_LOST       if the target GPU has fallen off the bus or is otherwise inaccessible
+ *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
+ */
+nvmlReturn_t DECLDIR nvmlDeviceGetMultiGpuBoard(nvmlDevice_t device, unsigned int *multiGpuBool);
+
+/**
  * Retrieves the total ECC error counts for the device.
  *
- * For Tesla &tm; and Quadro &reg; products from the Fermi and Kepler families.
+ * For Fermi &tm; or newer fully supported devices.
+ * Only applicable to devices with ECC.
  * Requires \a NVML_INFOROM_ECC version 1.0 or higher.
  * Requires ECC Mode to be enabled.
  *
  * The total error count is the sum of errors across each of the separate memory systems, i.e. the total set of 
  * errors across the entire device.
  *
- * See \ref nvmlEccBitType_t for a description of available bit types.\n
+ * See \ref nvmlMemoryErrorType_t for a description of available error types.\n
  * See \ref nvmlEccCounterType_t for a description of available counter types.
  *
  * @param device                               The identifier of the target device
- * @param bitType                              Flag that specifies the bit-type of the errors. 
+ * @param errorType                            Flag that specifies the type of the errors. 
  * @param counterType                          Flag that specifies the counter-type of the errors. 
  * @param eccCounts                            Reference in which to return the specified ECC errors
  * 
  * @return 
  *         - \ref NVML_SUCCESS                 if \a eccCounts has been set
  *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
- *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device, \a bitType or \a counterType is invalid, or \a eccCounts is NULL
+ *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device, \a errorType or \a counterType is invalid, or \a eccCounts is NULL
  *         - \ref NVML_ERROR_NOT_SUPPORTED     if the device does not support this feature
+ *         - \ref NVML_ERROR_GPU_IS_LOST       if the target GPU has fallen off the bus or is otherwise inaccessible
  *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
  *
  * @see nvmlDeviceClearEccErrorCounts()
  */
-nvmlReturn_t DECLDIR nvmlDeviceGetTotalEccErrors(nvmlDevice_t device, nvmlEccBitType_t bitType, nvmlEccCounterType_t counterType, unsigned long long *eccCounts);
+nvmlReturn_t DECLDIR nvmlDeviceGetTotalEccErrors(nvmlDevice_t device, nvmlMemoryErrorType_t errorType, nvmlEccCounterType_t counterType, unsigned long long *eccCounts);
 
 /**
  * Retrieves the detailed ECC error counts for the device.
  *
- * For Tesla &tm; and Quadro &reg; products from the Fermi and Kepler families.
+ * @deprecated   This API supports only a fixed set of ECC error locations
+ *               On different GPU architectures different locations are supported
+ *               See \ref nvmlDeviceGetMemoryErrorCounter
+ *
+ * For Fermi &tm; or newer fully supported devices.
+ * Only applicable to devices with ECC.
  * Requires \a NVML_INFOROM_ECC version 2.0 or higher to report aggregate location-based ECC counts.
  * Requires \a NVML_INFOROM_ECC version 1.0 or higher to report all other ECC counts.
  * Requires ECC Mode to be enabled.
  *
  * Detailed errors provide separate ECC counts for specific parts of the memory system.
  *
- * See \ref nvmlEccBitType_t for a description of available bit types.\n
+ * Reports zero for unsupported ECC error counters when a subset of ECC error counters are supported.
+ *
+ * See \ref nvmlMemoryErrorType_t for a description of available bit types.\n
  * See \ref nvmlEccCounterType_t for a description of available counter types.\n
  * See \ref nvmlEccErrorCounts_t for a description of provided detailed ECC counts.
  *
  * @param device                               The identifier of the target device
- * @param bitType                              Flag that specifies the bit-type of the errors. 
+ * @param errorType                            Flag that specifies the type of the errors. 
  * @param counterType                          Flag that specifies the counter-type of the errors. 
  * @param eccCounts                            Reference in which to return the specified ECC errors
  * 
  * @return 
  *         - \ref NVML_SUCCESS                 if \a eccCounts has been populated
  *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
- *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device, \a bitType or \a counterType is invalid, or \a eccCounts is NULL
+ *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device, \a errorType or \a counterType is invalid, or \a eccCounts is NULL
  *         - \ref NVML_ERROR_NOT_SUPPORTED     if the device does not support this feature
+ *         - \ref NVML_ERROR_GPU_IS_LOST       if the target GPU has fallen off the bus or is otherwise inaccessible
  *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
  *
  * @see nvmlDeviceClearEccErrorCounts()
  */
-nvmlReturn_t DECLDIR nvmlDeviceGetDetailedEccErrors(nvmlDevice_t device, nvmlEccBitType_t bitType, nvmlEccCounterType_t counterType, nvmlEccErrorCounts_t *eccCounts);
+nvmlReturn_t DECLDIR nvmlDeviceGetDetailedEccErrors(nvmlDevice_t device, nvmlMemoryErrorType_t errorType, nvmlEccCounterType_t counterType, nvmlEccErrorCounts_t *eccCounts);
+
+/**
+ * Retrieves the requested memory error counter for the device.
+ *
+ * For Fermi &tm; or newer fully supported devices.
+ * Requires \a NVML_INFOROM_ECC version 2.0 or higher to report aggregate location-based memory error counts.
+ * Requires \a NVML_INFOROM_ECC version 1.0 or higher to report all other memory error counts.
+ *
+ * Only applicable to devices with ECC.
+ *
+ * Requires ECC Mode to be enabled.
+ *
+ * See \ref nvmlMemoryErrorType_t for a description of available memory error types.\n
+ * See \ref nvmlEccCounterType_t for a description of available counter types.\n
+ * See \ref nvmlMemoryLocation_t for a description of available counter locations.\n
+ * 
+ * @param device                               The identifier of the target device
+ * @param errorType                            Flag that specifies the type of error.
+ * @param counterType                          Flag that specifies the counter-type of the errors. 
+ * @param locationType                         Specifies the location of the counter. 
+ * @param count                                Reference in which to return the ECC counter
+ * 
+ * @return 
+ *         - \ref NVML_SUCCESS                 if \a count has been populated
+ *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
+ *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device, \a bitTyp,e \a counterType or \a locationType is
+ *                                             invalid, or \a count is NULL
+ *         - \ref NVML_ERROR_NOT_SUPPORTED     if the device does not support ECC error reporting in the specified memory
+ *         - \ref NVML_ERROR_GPU_IS_LOST       if the target GPU has fallen off the bus or is otherwise inaccessible
+ *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
+ */
+nvmlReturn_t DECLDIR nvmlDeviceGetMemoryErrorCounter(nvmlDevice_t device, nvmlMemoryErrorType_t errorType,
+                                                   nvmlEccCounterType_t counterType,
+                                                   nvmlMemoryLocation_t locationType, unsigned long long *count);
 
 /**
  * Retrieves the current utilization rates for the device's major subsystems.
  *
- * For Tesla &tm; and Quadro &reg; products from the Fermi and Kepler families.
+ * For Fermi &tm; or newer fully supported devices.
  *
  * See \ref nvmlUtilization_t for details on available utilization rates.
+ *
+ * \note During driver initialization when ECC is enabled one can see high GPU and Memory Utilization readings.
+ *       This is caused by ECC Memory Scrubbing mechanism that is performed during driver initialization.
  *
  * @param device                               The identifier of the target device
  * @param utilization                          Reference in which to return the utilization information
@@ -1551,14 +2811,53 @@ nvmlReturn_t DECLDIR nvmlDeviceGetDetailedEccErrors(nvmlDevice_t device, nvmlEcc
  *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
  *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device is invalid or \a utilization is NULL
  *         - \ref NVML_ERROR_NOT_SUPPORTED     if the device does not support this feature
+ *         - \ref NVML_ERROR_GPU_IS_LOST       if the target GPU has fallen off the bus or is otherwise inaccessible
  *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
  */
 nvmlReturn_t DECLDIR nvmlDeviceGetUtilizationRates(nvmlDevice_t device, nvmlUtilization_t *utilization);
 
 /**
+ * Retrieves the current utilization and sampling size in microseconds for the Encoder
+ *
+ * For Kepler &tm; or newer fully supported devices.
+ *
+ * @param device                               The identifier of the target device
+ * @param utilization                          Reference to an unsigned int for encoder utilization info
+ * @param samplingPeriodUs                     Reference to an unsigned int for the sampling period in US
+ *
+ * @return
+ *         - \ref NVML_SUCCESS                 if \a utilization has been populated
+ *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
+ *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device is invalid, \a utilization is NULL, or \a samplingPeriodUs is NULL
+ *         - \ref NVML_ERROR_NOT_SUPPORTED     if the device does not support this feature
+ *         - \ref NVML_ERROR_GPU_IS_LOST       if the target GPU has fallen off the bus or is otherwise inaccessible
+ *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
+ */
+nvmlReturn_t DECLDIR nvmlDeviceGetEncoderUtilization(nvmlDevice_t device, unsigned int *utilization, unsigned int *samplingPeriodUs);
+
+/**
+ * Retrieves the current utilization and sampling size in microseconds for the Decoder
+ *
+ * For Kepler &tm; or newer fully supported devices.
+ *
+ * @param device                               The identifier of the target device
+ * @param utilization                          Reference to an unsigned int for decoder utilization info
+ * @param samplingPeriodUs                     Reference to an unsigned int for the sampling period in US
+ *
+ * @return
+ *         - \ref NVML_SUCCESS                 if \a utilization has been populated
+ *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
+ *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device is invalid, \a utilization is NULL, or \a samplingPeriodUs is NULL
+ *         - \ref NVML_ERROR_NOT_SUPPORTED     if the device does not support this feature
+ *         - \ref NVML_ERROR_GPU_IS_LOST       if the target GPU has fallen off the bus or is otherwise inaccessible
+ *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
+ */
+nvmlReturn_t DECLDIR nvmlDeviceGetDecoderUtilization(nvmlDevice_t device, unsigned int *utilization, unsigned int *samplingPeriodUs);
+
+/**
  * Retrieves the current and pending driver model for the device.
  *
- * For Tesla &tm; and Quadro &reg; products from the Fermi and Kepler families.
+ * For Fermi &tm; or newer fully supported devices.
  * For windows only.
  *
  * On Windows platforms the device driver can run in either WDDM or WDM (TCC) mode. If a display is attached
@@ -1571,10 +2870,11 @@ nvmlReturn_t DECLDIR nvmlDeviceGetUtilizationRates(nvmlDevice_t device, nvmlUtil
  * @param pending                              Reference in which to return the pending driver model
  * 
  * @return 
- *         - \ref NVML_SUCCESS                 if \a current and \a pending have been populated
+ *         - \ref NVML_SUCCESS                 if either \a current and/or \a pending have been set
  *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
  *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device is invalid or both \a current and \a pending are NULL
  *         - \ref NVML_ERROR_NOT_SUPPORTED     if the platform is not windows
+ *         - \ref NVML_ERROR_GPU_IS_LOST       if the target GPU has fallen off the bus or is otherwise inaccessible
  *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
  * 
  * @see nvmlDeviceSetDriverModel()
@@ -1598,14 +2898,35 @@ nvmlReturn_t DECLDIR nvmlDeviceGetDriverModel(nvmlDevice_t device, nvmlDriverMod
  *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
  *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device is invalid, or \a version is NULL
  *         - \ref NVML_ERROR_INSUFFICIENT_SIZE if \a length is too small 
+ *         - \ref NVML_ERROR_GPU_IS_LOST       if the target GPU has fallen off the bus or is otherwise inaccessible
  *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
  */
 nvmlReturn_t DECLDIR nvmlDeviceGetVbiosVersion(nvmlDevice_t device, char *version, unsigned int length);
 
 /**
+ * Get Bridge Chip Information for all the bridge chips on the board.
+ * 
+ * For all fully supported products.
+ * Only applicable to multi-GPU products.
+ * 
+ * @param device                                The identifier of the target device
+ * @param bridgeHierarchy                       Reference to the returned bridge chip Hierarchy
+ * 
+ * @return 
+ *         - \ref NVML_SUCCESS                 if bridge chip exists
+ *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
+ *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device is invalid, or \a bridgeInfo is NULL
+ *         - \ref NVML_ERROR_NOT_SUPPORTED     if bridge chip not supported on the device
+ *         - \ref NVML_ERROR_GPU_IS_LOST       if the target GPU has fallen off the bus or is otherwise inaccessible
+ *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
+ * 
+ */
+nvmlReturn_t DECLDIR nvmlDeviceGetBridgeChipInfo(nvmlDevice_t device, nvmlBridgeChipHierarchy_t *bridgeHierarchy);
+
+/**
  * Get information about processes with a compute context on a device
  *
- * For Tesla &tm; and Quadro &reg; products from the Fermi and Kepler families.
+ * For Kepler &tm; or newer fully supported devices.
  *
  * This function returns information only about compute running processes (e.g. CUDA application which have
  * active context). Any graphics applications (e.g. using OpenGL, DirectX) won't be listed by this function.
@@ -1629,6 +2950,7 @@ nvmlReturn_t DECLDIR nvmlDeviceGetVbiosVersion(nvmlDevice_t device, char *versio
  *                                             \a infoCount will contain minimal amount of space necessary for
  *                                             the call to complete
  *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device is invalid, either of \a infoCount or \a infos is NULL
+ *         - \ref NVML_ERROR_GPU_IS_LOST       if the target GPU has fallen off the bus or is otherwise inaccessible
  *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
  *
  * @see \ref nvmlSystemGetProcessName
@@ -1636,7 +2958,43 @@ nvmlReturn_t DECLDIR nvmlDeviceGetVbiosVersion(nvmlDevice_t device, char *versio
 nvmlReturn_t DECLDIR nvmlDeviceGetComputeRunningProcesses(nvmlDevice_t device, unsigned int *infoCount, nvmlProcessInfo_t *infos);
 
 /**
+ * Get information about processes with a graphics context on a device
+ *
+ * For Kepler &tm; or newer fully supported devices.
+ *
+ * This function returns information only about graphics based processes 
+ * (eg. applications using OpenGL, DirectX)
+ *
+ * To query the current number of running graphics processes, call this function with *infoCount = 0. The
+ * return code will be NVML_ERROR_INSUFFICIENT_SIZE, or NVML_SUCCESS if none are running. For this call
+ * \a infos is allowed to be NULL.
+ *
+ * Keep in mind that information returned by this call is dynamic and the number of elements might change in
+ * time. Allocate more space for \a infos table in case new graphics processes are spawned.
+ *
+ * @param device                               The identifier of the target device
+ * @param infoCount                            Reference in which to provide the \a infos array size, and
+ *                                             to return the number of returned elements
+ * @param infos                                Reference in which to return the process information
+ * 
+ * @return 
+ *         - \ref NVML_SUCCESS                 if \a infoCount and \a infos have been populated
+ *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
+ *         - \ref NVML_ERROR_INSUFFICIENT_SIZE if \a infoCount indicates that the \a infos array is too small
+ *                                             \a infoCount will contain minimal amount of space necessary for
+ *                                             the call to complete
+ *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device is invalid, either of \a infoCount or \a infos is NULL
+ *         - \ref NVML_ERROR_GPU_IS_LOST       if the target GPU has fallen off the bus or is otherwise inaccessible
+ *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
+ *
+ * @see \ref nvmlSystemGetProcessName
+ */
+nvmlReturn_t DECLDIR nvmlDeviceGetGraphicsRunningProcesses(nvmlDevice_t device, unsigned int *infoCount, nvmlProcessInfo_t *infos);
+
+/**
  * Check if the GPU devices are on the same physical board.
+ *
+ * For all fully supported products.
  *
  * @param device1                               The first GPU device
  * @param device2                               The second GPU device
@@ -1644,12 +3002,307 @@ nvmlReturn_t DECLDIR nvmlDeviceGetComputeRunningProcesses(nvmlDevice_t device, u
  *                                              Non-zero indicates that the GPUs are on the same board.
  *
  * @return
- *         - \ref NVML_SUCCESS                 when onSameBoard has been populated
+ *         - \ref NVML_SUCCESS                 if \a onSameBoard has been set
  *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
- *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a dev1, \a dev2 or \a onSameBoard are invalid
+ *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a dev1 or \a dev2 are invalid or \a onSameBoard is NULL
+ *         - \ref NVML_ERROR_NOT_SUPPORTED     if this check is not supported by the device
+ *         - \ref NVML_ERROR_GPU_IS_LOST       if the either GPU has fallen off the bus or is otherwise inaccessible
  *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
  */
 nvmlReturn_t DECLDIR nvmlDeviceOnSameBoard(nvmlDevice_t device1, nvmlDevice_t device2, int *onSameBoard);
+
+/**
+ * Retrieves the root/admin permissions on the target API. See \a nvmlRestrictedAPI_t for the list of supported APIs.
+ * If an API is restricted only root users can call that API. See \a nvmlDeviceSetAPIRestriction to change current permissions.
+ *
+ * For all fully supported products.
+ *
+ * @param device                               The identifier of the target device
+ * @param apiType                              Target API type for this operation
+ * @param isRestricted                         Reference in which to return the current restriction 
+ *                                             NVML_FEATURE_ENABLED indicates that the API is root-only
+ *                                             NVML_FEATURE_DISABLED indicates that the API is accessible to all users
+ *
+ * @return
+ *         - \ref NVML_SUCCESS                 if \a isRestricted has been set
+ *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
+ *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device is invalid, \a apiType incorrect or \a isRestricted is NULL
+ *         - \ref NVML_ERROR_NOT_SUPPORTED     if this query is not supported by the device or the device does not support
+ *                                                 the feature that is being queried (E.G. Enabling/disabling auto boosted clocks is
+ *                                                 not supported by the device)
+ *         - \ref NVML_ERROR_GPU_IS_LOST       if the target GPU has fallen off the bus or is otherwise inaccessible
+ *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
+ *
+ * @see nvmlRestrictedAPI_t
+ */
+nvmlReturn_t DECLDIR nvmlDeviceGetAPIRestriction(nvmlDevice_t device, nvmlRestrictedAPI_t apiType, nvmlEnableState_t *isRestricted);
+
+/**
+ * Gets recent samples for the GPU.
+ * 
+ * For Kepler &tm; or newer fully supported devices.
+ * Power Samples are not supported on Maxwell based GPUs.
+ * 
+ * 
+ * Based on type, this method can be used to fetch the power, utilization or clock samples maintained in the buffer by 
+ * the driver.
+ * 
+ * Power, Utilization and Clock samples are returned as type "unsigned int" for the union nvmlValue_t.
+ * 
+ * To get the size of samples that user needs to allocate, the method is invoked with samples set to NULL. 
+ * The returned samplesCount will provide the number of samples that can be queried. The user needs to 
+ * allocate the buffer with size as samplesCount * sizeof(nvmlSample_t).
+ * 
+ * lastSeenTimeStamp represents CPU timestamp in microseconds. Set it to 0 to fetch all the samples maintained by the 
+ * underlying buffer. Set lastSeenTimeStamp to one of the timeStamps retrieved from the date of the previous query 
+ * to get more recent samples.
+ * 
+ * This method fetches the number of entries which can be accommodated in the provided samples array, and the 
+ * reference samplesCount is updated to indicate how many samples were actually retrieved. The advantage of using this 
+ * method for samples in contrast to polling via existing methods is to get get higher frequency data at lower polling cost.
+ * 
+ * @param device                        The identifier for the target device
+ * @param type                          Type of sampling event
+ * @param lastSeenTimeStamp             Return only samples with timestamp greater than lastSeenTimeStamp. 
+ * @param sampleValType                 Output parameter to represent the type of sample value as described in nvmlSampleVal_t
+ * @param sampleCount                   Reference to provide the number of elements which can be queried in samples array
+ * @param samples                       Reference in which samples are returned
+ 
+ * @return 
+ *         - \ref NVML_SUCCESS                 if samples are successfully retrieved
+ *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
+ *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device is invalid, \a samplesCount is NULL or 
+ *                                             reference to \a sampleCount is 0 for non null \a samples
+ *         - \ref NVML_ERROR_NOT_SUPPORTED     if this query is not supported by the device
+ *         - \ref NVML_ERROR_GPU_IS_LOST       if the target GPU has fallen off the bus or is otherwise inaccessible
+ *         - \ref NVML_ERROR_NOT_FOUND         if sample entries are not found
+ *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
+ */
+nvmlReturn_t DECLDIR nvmlDeviceGetSamples(nvmlDevice_t device, nvmlSamplingType_t type, unsigned long long lastSeenTimeStamp,
+        nvmlValueType_t *sampleValType, unsigned int *sampleCount, nvmlSample_t *samples);
+
+/**
+ * Gets Total, Available and Used size of BAR1 memory.
+ * 
+ * BAR1 is used to map the FB (device memory) so that it can be directly accessed by the CPU or by 3rd party 
+ * devices (peer-to-peer on the PCIE bus). 
+ * 
+ * For Kepler &tm; or newer fully supported devices.
+ *
+ * @param device                               The identifier of the target device
+ * @param bar1Memory                           Reference in which BAR1 memory
+ *                                             information is returned.
+ *
+ * @return
+ *         - \ref NVML_SUCCESS                 if BAR1 memory is successfully retrieved
+ *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
+ *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device is invalid, \a bar1Memory is NULL
+ *         - \ref NVML_ERROR_NOT_SUPPORTED     if this query is not supported by the device
+ *         - \ref NVML_ERROR_GPU_IS_LOST       if the target GPU has fallen off the bus or is otherwise inaccessible
+ *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
+ *
+ */
+nvmlReturn_t DECLDIR nvmlDeviceGetBAR1MemoryInfo(nvmlDevice_t device, nvmlBAR1Memory_t *bar1Memory);
+
+
+/**
+ * Gets the duration of time during which the device was throttled (lower than requested clocks) due to power 
+ * or thermal constraints.
+ *
+ * The method is important to users who are tying to understand if their GPUs throttle at any point during their applications. The
+ * difference in violation times at two different reference times gives the indication of GPU throttling event. 
+ *
+ * Violation for thermal capping is not supported at this time.
+ * 
+ * For Kepler &tm; or newer fully supported devices.
+ *
+ * @param device                               The identifier of the target device
+ * @param perfPolicyType                       Represents Performance policy which can trigger GPU throttling
+ * @param violTime                             Reference to which violation time related information is returned 
+ *                                         
+ *
+ * @return
+ *         - \ref NVML_SUCCESS                 if violation time is successfully retrieved
+ *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
+ *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device is invalid, \a perfPolicyType is invalid, or \a violTime is NULL
+ *         - \ref NVML_ERROR_NOT_SUPPORTED     if this query is not supported by the device
+ *         - \ref NVML_ERROR_GPU_IS_LOST       if the target GPU has fallen off the bus or is otherwise inaccessible
+ *
+ */
+nvmlReturn_t DECLDIR nvmlDeviceGetViolationStatus(nvmlDevice_t device, nvmlPerfPolicyType_t perfPolicyType, nvmlViolationTime_t *violTime);
+
+/**
+ * @}
+ */
+
+/** @addtogroup nvmlAccountingStats
+ *  @{
+ */
+
+/**
+ * Queries the state of per process accounting mode.
+ *
+ * For Kepler &tm; or newer fully supported devices.
+ *
+ * See \ref nvmlDeviceGetAccountingStats for more details.
+ * See \ref nvmlDeviceSetAccountingMode
+ *
+ * @param device                               The identifier of the target device
+ * @param mode                                 Reference in which to return the current accounting mode
+ *
+ * @return 
+ *         - \ref NVML_SUCCESS                 if the mode has been successfully retrieved 
+ *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
+ *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device is invalid or \a mode are NULL
+ *         - \ref NVML_ERROR_NOT_SUPPORTED     if the device doesn't support this feature
+ *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
+ */
+nvmlReturn_t DECLDIR nvmlDeviceGetAccountingMode(nvmlDevice_t device, nvmlEnableState_t *mode);
+
+/**
+ * Queries process's accounting stats.
+ *
+ * For Kepler &tm; or newer fully supported devices.
+ * 
+ * Accounting stats capture GPU utilization and other statistics across the lifetime of a process.
+ * Accounting stats can be queried during life time of the process and after its termination.
+ * The time field in \ref nvmlAccountingStats_t is reported as 0 during the lifetime of the process and 
+ * updated to actual running time after its termination.
+ * Accounting stats are kept in a circular buffer, newly created processes overwrite information about old
+ * processes.
+ *
+ * See \ref nvmlAccountingStats_t for description of each returned metric.
+ * List of processes that can be queried can be retrieved from \ref nvmlDeviceGetAccountingPids.
+ *
+ * @note Accounting Mode needs to be on. See \ref nvmlDeviceGetAccountingMode.
+ * @note Only compute and graphics applications stats can be queried. Monitoring applications stats can't be
+ *         queried since they don't contribute to GPU utilization.
+ * @note In case of pid collision stats of only the latest process (that terminated last) will be reported
+ *
+ * @warning On Kepler devices per process statistics are accurate only if there's one process running on a GPU.
+ * 
+ * @param device                               The identifier of the target device
+ * @param pid                                  Process Id of the target process to query stats for
+ * @param stats                                Reference in which to return the process's accounting stats
+ *
+ * @return 
+ *         - \ref NVML_SUCCESS                 if stats have been successfully retrieved
+ *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
+ *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device is invalid or \a stats are NULL
+ *         - \ref NVML_ERROR_NOT_FOUND         if process stats were not found
+ *         - \ref NVML_ERROR_NOT_SUPPORTED     if the device doesn't support this feature or accounting mode is disabled
+ *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
+ *
+ * @see nvmlDeviceGetAccountingBufferSize
+ */
+nvmlReturn_t DECLDIR nvmlDeviceGetAccountingStats(nvmlDevice_t device, unsigned int pid, nvmlAccountingStats_t *stats);
+
+/**
+ * Queries list of processes that can be queried for accounting stats. The list of processes returned 
+ * can be in running or terminated state.
+ *
+ * For Kepler &tm; or newer fully supported devices.
+ *
+ * To just query the number of processes ready to be queried, call this function with *count = 0 and
+ * pids=NULL. The return code will be NVML_ERROR_INSUFFICIENT_SIZE, or NVML_SUCCESS if list is empty.
+ * 
+ * For more details see \ref nvmlDeviceGetAccountingStats.
+ *
+ * @note In case of PID collision some processes might not be accessible before the circular buffer is full.
+ *
+ * @param device                               The identifier of the target device
+ * @param count                                Reference in which to provide the \a pids array size, and
+ *                                               to return the number of elements ready to be queried
+ * @param pids                                 Reference in which to return list of process ids
+ * 
+ * @return 
+ *         - \ref NVML_SUCCESS                 if pids were successfully retrieved
+ *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
+ *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device is invalid or \a count is NULL
+ *         - \ref NVML_ERROR_NOT_SUPPORTED     if the device doesn't support this feature or accounting mode is disabled
+ *         - \ref NVML_ERROR_INSUFFICIENT_SIZE if \a count is too small (\a count is set to
+ *                                                 expected value)
+ *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
+ *
+ * @see nvmlDeviceGetAccountingBufferSize
+ */
+nvmlReturn_t DECLDIR nvmlDeviceGetAccountingPids(nvmlDevice_t device, unsigned int *count, unsigned int *pids);
+
+/**
+ * Returns the number of processes that the circular buffer with accounting pids can hold.
+ *
+ * For Kepler &tm; or newer fully supported devices.
+ *
+ * This is the maximum number of processes that accounting information will be stored for before information
+ * about oldest processes will get overwritten by information about new processes.
+ *
+ * @param device                               The identifier of the target device
+ * @param bufferSize                           Reference in which to provide the size (in number of elements)
+ *                                               of the circular buffer for accounting stats.
+ * 
+ * @return 
+ *         - \ref NVML_SUCCESS                 if buffer size was successfully retrieved
+ *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
+ *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device is invalid or \a bufferSize is NULL
+ *         - \ref NVML_ERROR_NOT_SUPPORTED     if the device doesn't support this feature or accounting mode is disabled
+ *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
+ * 
+ * @see nvmlDeviceGetAccountingStats
+ * @see nvmlDeviceGetAccountingPids
+ */
+nvmlReturn_t DECLDIR nvmlDeviceGetAccountingBufferSize(nvmlDevice_t device, unsigned int *bufferSize);
+
+/** @} */
+
+/** @addtogroup nvmlDeviceQueries
+ *  @{
+ */
+
+/**
+ * Returns the list of retired pages by source, including pages that are pending retirement
+ * The address information provided from this API is the hardware address of the page that was retired.  Note
+ * that this does not match the virtual address used in CUDA, but will match the address information in XID 63
+ * 
+ * For Kepler &tm; or newer fully supported devices.
+ *
+ * @param device                            The identifier of the target device
+ * @param cause                             Filter page addresses by cause of retirement
+ * @param pageCount                         Reference in which to provide the \a addresses buffer size, and
+ *                                          to return the number of retired pages that match \a cause
+ *                                          Set to 0 to query the size without allocating an \a addresses buffer
+ * @param addresses                         Buffer to write the page addresses into
+ * 
+ * @return
+ *         - \ref NVML_SUCCESS                 if \a pageCount was populated and \a addresses was filled
+ *         - \ref NVML_ERROR_INSUFFICIENT_SIZE if \a pageCount indicates the buffer is not large enough to store all the
+ *                                             matching page addresses.  \a pageCount is set to the needed size.
+ *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
+ *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device is invalid, \a pageCount is NULL, \a cause is invalid, or 
+ *                                             \a addresses is NULL
+ *         - \ref NVML_ERROR_NOT_SUPPORTED     if the device doesn't support this feature
+ *         - \ref NVML_ERROR_GPU_IS_LOST       if the target GPU has fallen off the bus or is otherwise inaccessible
+ *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
+ */
+nvmlReturn_t DECLDIR nvmlDeviceGetRetiredPages(nvmlDevice_t device, nvmlPageRetirementCause_t cause,
+    unsigned int *pageCount, unsigned long long *addresses);
+
+/**
+ * Check if any pages are pending retirement and need a reboot to fully retire.
+ *
+ * For Kepler &tm; or newer fully supported devices.
+ *
+ * @param device                            The identifier of the target device
+ * @param isPending                         Reference in which to return the pending status
+ * 
+ * @return
+ *         - \ref NVML_SUCCESS                 if \a isPending was populated
+ *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
+ *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device is invalid or \a isPending is NULL
+ *         - \ref NVML_ERROR_NOT_SUPPORTED     if the device doesn't support this feature
+ *         - \ref NVML_ERROR_GPU_IS_LOST       if the target GPU has fallen off the bus or is otherwise inaccessible
+ *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
+ */
+nvmlReturn_t DECLDIR nvmlDeviceGetRetiredPagesPendingStatus(nvmlDevice_t device, nvmlEnableState_t *isPending);
 
 /** @} */
 
@@ -1705,7 +3358,7 @@ nvmlReturn_t DECLDIR nvmlUnitSetLedState(nvmlUnit_t unit, nvmlLedColor_t color);
 /**
  * Set the persistence mode for the device.
  *
- * For all CUDA-capable products.
+ * For all products.
  * For Linux only.
  * Requires root/admin permissions.
  *
@@ -1726,6 +3379,7 @@ nvmlReturn_t DECLDIR nvmlUnitSetLedState(nvmlUnit_t unit, nvmlLedColor_t color);
  *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device is invalid or \a mode is invalid
  *         - \ref NVML_ERROR_NOT_SUPPORTED     if the device does not support this feature
  *         - \ref NVML_ERROR_NO_PERMISSION     if the user doesn't have permission to perform this operation
+ *         - \ref NVML_ERROR_GPU_IS_LOST       if the target GPU has fallen off the bus or is otherwise inaccessible
  *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
  *
  * @see nvmlDeviceGetPersistenceMode()
@@ -1735,7 +3389,7 @@ nvmlReturn_t DECLDIR nvmlDeviceSetPersistenceMode(nvmlDevice_t device, nvmlEnabl
 /**
  * Set the compute mode for the device.
  *
- * For all CUDA-capable products.
+ * For all products.
  * Requires root/admin permissions.
  *
  * The compute mode determines whether a GPU can be used for compute operations and whether it can
@@ -1757,6 +3411,7 @@ nvmlReturn_t DECLDIR nvmlDeviceSetPersistenceMode(nvmlDevice_t device, nvmlEnabl
  *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device is invalid or \a mode is invalid
  *         - \ref NVML_ERROR_NOT_SUPPORTED     if the device does not support this feature
  *         - \ref NVML_ERROR_NO_PERMISSION     if the user doesn't have permission to perform this operation
+ *         - \ref NVML_ERROR_GPU_IS_LOST       if the target GPU has fallen off the bus or is otherwise inaccessible
  *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
  *
  * @see nvmlDeviceGetComputeMode()
@@ -1766,7 +3421,8 @@ nvmlReturn_t DECLDIR nvmlDeviceSetComputeMode(nvmlDevice_t device, nvmlComputeMo
 /**
  * Set the ECC mode for the device.
  *
- * For Tesla &tm; and Quadro &reg; products from the Fermi and Kepler families.
+ * For Kepler &tm; or newer fully supported devices.
+ * Only applicable to devices with ECC.
  * Requires \a NVML_INFOROM_ECC version 1.0 or higher.
  * Requires root/admin permissions.
  *
@@ -1785,6 +3441,7 @@ nvmlReturn_t DECLDIR nvmlDeviceSetComputeMode(nvmlDevice_t device, nvmlComputeMo
  *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device is invalid or \a ecc is invalid
  *         - \ref NVML_ERROR_NOT_SUPPORTED     if the device does not support this feature
  *         - \ref NVML_ERROR_NO_PERMISSION     if the user doesn't have permission to perform this operation
+ *         - \ref NVML_ERROR_GPU_IS_LOST       if the target GPU has fallen off the bus or is otherwise inaccessible
  *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
  *
  * @see nvmlDeviceGetEccMode()
@@ -1792,9 +3449,10 @@ nvmlReturn_t DECLDIR nvmlDeviceSetComputeMode(nvmlDevice_t device, nvmlComputeMo
 nvmlReturn_t DECLDIR nvmlDeviceSetEccMode(nvmlDevice_t device, nvmlEnableState_t ecc);  
 
 /**
- * Clear the ECC error counts for the device.
+ * Clear the ECC error and other memory error counts for the device.
  *
- * For Tesla &tm; and Quadro &reg; products from the Fermi and Kepler families.
+ * For Kepler &tm; or newer fully supported devices.
+ * Only applicable to devices with ECC.
  * Requires \a NVML_INFOROM_ECC version 2.0 or higher to clear aggregate location-based ECC counts.
  * Requires \a NVML_INFOROM_ECC version 1.0 or higher to clear all other ECC counts.
  * Requires root/admin permissions.
@@ -1804,7 +3462,7 @@ nvmlReturn_t DECLDIR nvmlDeviceSetEccMode(nvmlDevice_t device, nvmlEnableState_t
  *
  * This operation takes effect immediately.
  *
- * See \ref nvmlEccCounterType_t for details on available counter types.
+ * See \ref nvmlMemoryErrorType_t for details on available counter types.
  *
  * @param device                               The identifier of the target device
  * @param counterType                          Flag that indicates which type of errors should be cleared.
@@ -1815,6 +3473,7 @@ nvmlReturn_t DECLDIR nvmlDeviceSetEccMode(nvmlDevice_t device, nvmlEnableState_t
  *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device is invalid or \a counterType is invalid
  *         - \ref NVML_ERROR_NOT_SUPPORTED     if the device does not support this feature
  *         - \ref NVML_ERROR_NO_PERMISSION     if the user doesn't have permission to perform this operation
+ *         - \ref NVML_ERROR_GPU_IS_LOST       if the target GPU has fallen off the bus or is otherwise inaccessible
  *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
  *
  * @see 
@@ -1826,7 +3485,7 @@ nvmlReturn_t DECLDIR nvmlDeviceClearEccErrorCounts(nvmlDevice_t device, nvmlEccC
 /**
  * Set the driver model for the device.
  *
- * For Tesla &tm; and Quadro &reg; products from the Fermi and Kepler families.
+ * For Fermi &tm; or newer fully supported devices.
  * For windows only.
  * Requires root/admin permissions.
  *
@@ -1839,7 +3498,10 @@ nvmlReturn_t DECLDIR nvmlDeviceClearEccErrorCounts(nvmlDevice_t device, nvmlEccC
  *
  * This operation takes effect after the next reboot.
  * 
- * Under windows driver model may only be set to WDDM when running in DEFAULT compute mode.
+ * Windows driver model may only be set to WDDM when running in DEFAULT compute mode.
+ *
+ * Change driver model to WDDM is not supported when GPU doesn't support graphics acceleration or 
+ * will not support it after reboot. See \ref nvmlDeviceSetGpuOperationMode.
  *
  * See \ref nvmlDriverModel_t for details on available driver models.
  * See \ref nvmlFlagDefault and \ref nvmlFlagForce
@@ -1854,11 +3516,193 @@ nvmlReturn_t DECLDIR nvmlDeviceClearEccErrorCounts(nvmlDevice_t device, nvmlEccC
  *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device is invalid or \a driverModel is invalid
  *         - \ref NVML_ERROR_NOT_SUPPORTED     if the platform is not windows or the device does not support this feature
  *         - \ref NVML_ERROR_NO_PERMISSION     if the user doesn't have permission to perform this operation
+ *         - \ref NVML_ERROR_GPU_IS_LOST       if the target GPU has fallen off the bus or is otherwise inaccessible
  *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
  * 
  * @see nvmlDeviceGetDriverModel()
  */
 nvmlReturn_t DECLDIR nvmlDeviceSetDriverModel(nvmlDevice_t device, nvmlDriverModel_t driverModel, unsigned int flags);
+
+/**
+ * Set clocks that applications will lock to.
+ *
+ * Sets the clocks that compute and graphics applications will be running at.
+ * e.g. CUDA driver requests these clocks during context creation which means this property 
+ * defines clocks at which CUDA applications will be running unless some overspec event
+ * occurs (e.g. over power, over thermal or external HW brake).
+ *
+ * Can be used as a setting to request constant performance.
+ *
+ * For Kepler &tm; or newer non-GeForce fully supported devices and Maxwell or newer GeForce devices.
+ * Requires root/admin permissions. 
+ *
+ * See \ref nvmlDeviceGetSupportedMemoryClocks and \ref nvmlDeviceGetSupportedGraphicsClocks 
+ * for details on how to list available clocks combinations.
+ *
+ * After system reboot or driver reload applications clocks go back to their default value.
+ * See \ref nvmlDeviceResetApplicationsClocks.
+ *
+ * @param device                               The identifier of the target device
+ * @param memClockMHz                          Requested memory clock in MHz
+ * @param graphicsClockMHz                     Requested graphics clock in MHz
+ * 
+ * @return 
+ *         - \ref NVML_SUCCESS                 if new settings were successfully set
+ *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
+ *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device is invalid or \a memClockMHz and \a graphicsClockMHz 
+ *                                                 is not a valid clock combination
+ *         - \ref NVML_ERROR_NO_PERMISSION     if the user doesn't have permission to perform this operation 
+ *         - \ref NVML_ERROR_NOT_SUPPORTED     if the device doesn't support this feature
+ *         - \ref NVML_ERROR_GPU_IS_LOST       if the target GPU has fallen off the bus or is otherwise inaccessible
+ *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
+ */
+nvmlReturn_t DECLDIR nvmlDeviceSetApplicationsClocks(nvmlDevice_t device, unsigned int memClockMHz, unsigned int graphicsClockMHz);
+
+/**
+ * Set new power limit of this device.
+ * 
+ * For Kepler &tm; or newer fully supported devices.
+ * Requires root/admin permissions.
+ *
+ * See \ref nvmlDeviceGetPowerManagementLimitConstraints to check the allowed ranges of values.
+ *
+ * \note Limit is not persistent across reboots or driver unloads.
+ * Enable persistent mode to prevent driver from unloading when no application is using the device.
+ *
+ * @param device                               The identifier of the target device
+ * @param limit                                Power management limit in milliwatts to set
+ * 
+ * @return 
+ *         - \ref NVML_SUCCESS                 if \a limit has been set
+ *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
+ *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device is invalid or \a defaultLimit is out of range
+ *         - \ref NVML_ERROR_NOT_SUPPORTED     if the device does not support this feature
+ *         - \ref NVML_ERROR_GPU_IS_LOST       if the target GPU has fallen off the bus or is otherwise inaccessible
+ *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
+ *
+ * @see nvmlDeviceGetPowerManagementLimitConstraints
+ * @see nvmlDeviceGetPowerManagementDefaultLimit
+ */
+nvmlReturn_t DECLDIR nvmlDeviceSetPowerManagementLimit(nvmlDevice_t device, unsigned int limit);
+
+/**
+ * Sets new GOM. See \a nvmlGpuOperationMode_t for details.
+ *
+ * For GK110 M-class and X-class Tesla &tm; products from the Kepler family.
+ * Modes \ref NVML_GOM_LOW_DP and \ref NVML_GOM_ALL_ON are supported on fully supported GeForce products.
+ * Not supported on Quadro &reg; and Tesla &tm; C-class products.
+ * Requires root/admin permissions.
+ * 
+ * Changing GOMs requires a reboot. 
+ * The reboot requirement might be removed in the future.
+ *
+ * Compute only GOMs don't support graphics acceleration. Under windows switching to these GOMs when
+ * pending driver model is WDDM is not supported. See \ref nvmlDeviceSetDriverModel.
+ * 
+ * @param device                               The identifier of the target device
+ * @param mode                                 Target GOM
+ * 
+ * @return 
+ *         - \ref NVML_SUCCESS                 if \a mode has been set
+ *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
+ *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device is invalid or \a mode incorrect
+ *         - \ref NVML_ERROR_NOT_SUPPORTED     if the device does not support GOM or specific mode
+ *         - \ref NVML_ERROR_NO_PERMISSION     if the user doesn't have permission to perform this operation
+ *         - \ref NVML_ERROR_GPU_IS_LOST       if the target GPU has fallen off the bus or is otherwise inaccessible
+ *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
+ *
+ * @see nvmlGpuOperationMode_t
+ * @see nvmlDeviceGetGpuOperationMode
+ */
+nvmlReturn_t DECLDIR nvmlDeviceSetGpuOperationMode(nvmlDevice_t device, nvmlGpuOperationMode_t mode);
+
+/**
+ * Changes the root/admin restructions on certain APIs. See \a nvmlRestrictedAPI_t for the list of supported APIs.
+ * This method can be used by a root/admin user to give non-root/admin access to certain otherwise-restricted APIs.
+ * The new setting lasts for the lifetime of the NVIDIA driver; it is not persistent. See \a nvmlDeviceGetAPIRestriction
+ * to query the current restriction settings.
+ * 
+ * For Kepler &tm; or newer fully supported devices.
+ * Requires root/admin permissions.
+ *
+ * @param device                               The identifier of the target device
+ * @param apiType                              Target API type for this operation
+ * @param isRestricted                         The target restriction
+ *
+ * @return
+ *         - \ref NVML_SUCCESS                 if \a isRestricted has been set
+ *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
+ *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device is invalid or \a apiType incorrect
+ *         - \ref NVML_ERROR_NOT_SUPPORTED     if the device does not support changing API restrictions or the device does not support
+ *                                                 the feature that api restrictions are being set for (E.G. Enabling/disabling auto 
+ *                                                 boosted clocks is not supported by the device)
+ *         - \ref NVML_ERROR_NO_PERMISSION     if the user doesn't have permission to perform this operation
+ *         - \ref NVML_ERROR_GPU_IS_LOST       if the target GPU has fallen off the bus or is otherwise inaccessible
+ *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
+ *
+ * @see nvmlRestrictedAPI_t
+ */
+nvmlReturn_t DECLDIR nvmlDeviceSetAPIRestriction(nvmlDevice_t device, nvmlRestrictedAPI_t apiType, nvmlEnableState_t isRestricted);
+
+/**
+ * @}
+ */
+ 
+/** @addtogroup nvmlAccountingStats
+ *  @{
+ */
+
+/**
+ * Enables or disables per process accounting.
+ *
+ * For Kepler &tm; or newer fully supported devices.
+ * Requires root/admin permissions.
+ *
+ * @note This setting is not persistent and will default to disabled after driver unloads.
+ *       Enable persistence mode to be sure the setting doesn't switch off to disabled.
+ * 
+ * @note Enabling accounting mode has no negative impact on the GPU performance.
+ *
+ * @note Disabling accounting clears all accounting pids information.
+ *
+ * See \ref nvmlDeviceGetAccountingMode
+ * See \ref nvmlDeviceGetAccountingStats
+ * See \ref nvmlDeviceClearAccountingPids
+ *
+ * @param device                               The identifier of the target device
+ * @param mode                                 The target accounting mode
+ *
+ * @return 
+ *         - \ref NVML_SUCCESS                 if the new mode has been set
+ *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
+ *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device or \a mode are invalid
+ *         - \ref NVML_ERROR_NOT_SUPPORTED     if the device doesn't support this feature
+ *         - \ref NVML_ERROR_NO_PERMISSION     if the user doesn't have permission to perform this operation
+ *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
+ */
+nvmlReturn_t DECLDIR nvmlDeviceSetAccountingMode(nvmlDevice_t device, nvmlEnableState_t mode);
+
+/**
+ * Clears accounting information about all processes that have already terminated.
+ *
+ * For Kepler &tm; or newer fully supported devices.
+ * Requires root/admin permissions.
+ *
+ * See \ref nvmlDeviceGetAccountingMode
+ * See \ref nvmlDeviceGetAccountingStats
+ * See \ref nvmlDeviceSetAccountingMode
+ *
+ * @param device                               The identifier of the target device
+ *
+ * @return 
+ *         - \ref NVML_SUCCESS                 if accounting information has been cleared 
+ *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
+ *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a device are invalid
+ *         - \ref NVML_ERROR_NOT_SUPPORTED     if the device doesn't support this feature
+ *         - \ref NVML_ERROR_NO_PERMISSION     if the user doesn't have permission to perform this operation
+ *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
+ */
+nvmlReturn_t DECLDIR nvmlDeviceClearAccountingPids(nvmlDevice_t device);
 
 /** @} */
 
@@ -1874,6 +3718,7 @@ nvmlReturn_t DECLDIR nvmlDeviceSetDriverModel(nvmlDevice_t device, nvmlDriverMod
  * Create an empty set of events.
  * Event set should be freed by \ref nvmlEventSetFree
  *
+ * For Fermi &tm; or newer fully supported devices.
  * @param set                                  Reference in which to return the event handle
  * 
  * @return 
@@ -1889,17 +3734,21 @@ nvmlReturn_t DECLDIR nvmlEventSetCreate(nvmlEventSet_t *set);
 /**
  * Starts recording of events on a specified devices and add the events to specified \ref nvmlEventSet_t
  *
- * For Tesla &tm; and Quadro &reg; products from the Fermi and Kepler families.
+ * For Fermi &tm; or newer fully supported devices.
  * Ecc events are available only on ECC enabled devices (see \ref nvmlDeviceGetTotalEccErrors)
  * Power capping events are available only on Power Management enabled devices (see \ref nvmlDeviceGetPowerManagementMode)
  *
- * For linux only.
+ * For Linux only.
  *
  * \b IMPORTANT: Operations on \a set are not thread safe
  *
  * This call starts recording of events on specific device.
  * All events that occurred before this call are not recorded.
  * Checking if some event occurred can be done with \ref nvmlEventSetWait
+ *
+ * If function reports NVML_ERROR_UNKNOWN, event set is in undefined state and should be freed.
+ * If function reports NVML_ERROR_NOT_SUPPORTED, event set can still be used. None of the requested eventTypes
+ *     are registered in that case.
  *
  * @param device                               The identifier of the target device
  * @param eventTypes                           Bitmask of \ref nvmlEventType to record
@@ -1910,6 +3759,7 @@ nvmlReturn_t DECLDIR nvmlEventSetCreate(nvmlEventSet_t *set);
  *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
  *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a eventTypes is invalid or \a set is NULL
  *         - \ref NVML_ERROR_NOT_SUPPORTED     if the platform does not support this feature or some of requested event types
+ *         - \ref NVML_ERROR_GPU_IS_LOST       if the target GPU has fallen off the bus or is otherwise inaccessible
  *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
  * 
  * @see nvmlEventType
@@ -1922,7 +3772,7 @@ nvmlReturn_t DECLDIR nvmlDeviceRegisterEvents(nvmlDevice_t device, unsigned long
 /**
  * Returns information about events supported on device
  *
- * For all products.
+ * For Fermi &tm; or newer fully supported devices.
  *
  * Events are not supported on Windows. So this function returns an empty mask in \a eventTypes on Windows.
  *
@@ -1933,6 +3783,7 @@ nvmlReturn_t DECLDIR nvmlDeviceRegisterEvents(nvmlDevice_t device, unsigned long
  *         - \ref NVML_SUCCESS                 if the eventTypes has been set
  *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
  *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a eventType is NULL
+ *         - \ref NVML_ERROR_GPU_IS_LOST       if the target GPU has fallen off the bus or is otherwise inaccessible
  *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
  * 
  * @see nvmlEventType
@@ -1943,22 +3794,27 @@ nvmlReturn_t DECLDIR nvmlDeviceGetSupportedEventTypes(nvmlDevice_t device, unsig
 /**
  * Waits on events and delivers events
  *
- * For Tesla &tm; and Quadro &reg; products from the Fermi and Kepler families.
+ * For Fermi &tm; or newer fully supported devices.
  *
  * If some events are ready to be delivered at the time of the call, function returns immediately.
  * If there are no events ready to be delivered, function sleeps till event arrives 
  * but not longer than specified timeout. This function in certain conditions can return before
  * specified timeout passes (e.g. when interrupt arrives)
  * 
+ * In case of xid error, the function returns the most recent xid error type seen by the system. If there are multiple
+ * xid errors generated before nvmlEventSetWait is invoked then the last seen xid error type is returned for all
+ * xid error events.
+ * 
  * @param set                                  Reference to set of events to wait on
  * @param data                                 Reference in which to return event data
- * @param timeoutms                            Maximum amount of wait time in ms for registered event
+ * @param timeoutms                            Maximum amount of wait time in milliseconds for registered event
  * 
  * @return 
  *         - \ref NVML_SUCCESS                 if the data has been set
  *         - \ref NVML_ERROR_UNINITIALIZED     if the library has not been successfully initialized
  *         - \ref NVML_ERROR_INVALID_ARGUMENT  if \a data is NULL
  *         - \ref NVML_ERROR_TIMEOUT           if no event arrived in specified timeout or interrupt arrived
+ *         - \ref NVML_ERROR_GPU_IS_LOST       if a GPU has fallen off the bus or is otherwise inaccessible
  *         - \ref NVML_ERROR_UNKNOWN           on any unexpected error
  * 
  * @see nvmlEventType
@@ -1969,7 +3825,7 @@ nvmlReturn_t DECLDIR nvmlEventSetWait(nvmlEventSet_t set, nvmlEventData_t * data
 /**
  * Releases events in the set
  *
- * For Tesla &tm; and Quadro &reg; products from the Fermi and Kepler families.
+ * For Fermi &tm; or newer fully supported devices.
  *
  * @param set                                  Reference to events to be released 
  * 
@@ -1989,6 +3845,10 @@ nvmlReturn_t DECLDIR nvmlEventSetFree(nvmlEventSet_t set);
  */
 #if defined(__NVML_API_VERSION_INTERNAL)
 #undef nvmlDeviceGetPciInfo
+#undef nvmlDeviceGetCount
+#undef nvmlDeviceGetHandleByIndex
+#undef nvmlDeviceGetHandleByPciBusId
+#undef nvmlInit
 #endif
 
 #ifdef __cplusplus
